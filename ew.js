@@ -100,6 +100,22 @@ const xrState = (() => {
       result.set(Float32Array.from([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]));
       return result;
     })(),
+    gripPosition: _makeTypedArray(Float32Array, 3),
+    gripOrientation: (() => {
+      const result = _makeTypedArray(Float32Array, 4);
+      result[3] = 1;
+      return result;
+    })(),
+    /* gripDirection: (() => { // derived
+      const result = _makeTypedArray(Float32Array, 3);
+      result[2] = -1;
+      return result;
+    })(), */
+    gripTransformMatrix: (() => { // derived
+      const result = _makeTypedArray(Float32Array, 16);
+      result.set(Float32Array.from([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]));
+      return result;
+    })(),
     buttons: (() => {
       const result = Array(10);
       for (let i = 0; i < result.length; i++) {
@@ -369,13 +385,13 @@ const handlePaymentRequest = () => {
 };
 GlobalContext.handlePaymentRequest = handlePaymentRequest;
 
-const _computeDerivedGamepadsData = () => {
+/* const _computeDerivedGamepadsData = () => {
   const _deriveGamepadData = gamepad => {
     localQuaternion.fromArray(gamepad.orientation);
-    /* localVector
+    localVector
       .set(0, 0, -1)
       .applyQuaternion(localQuaternion)
-      .toArray(gamepad.direction); */
+      .toArray(gamepad.direction);
     localVector.fromArray(gamepad.position);
     localVector2.set(1, 1, 1);
     localMatrix
@@ -385,7 +401,7 @@ const _computeDerivedGamepadsData = () => {
   for (let i = 0; i < xrState.gamepads.length; i++) {
     _deriveGamepadData(xrState.gamepads[i]);
   }
-};
+}; */
 const _tickAnimationFrame = win => {
   win.clear();
   return win.runAsync({
@@ -434,11 +450,10 @@ core.animate = (timestamp, frame, referenceSpace) => {
       const inputSource = inputSources.find(inputSource => inputSource.handedness === handedness);
       const xrGamepad = xrState.gamepads[i];
 
-      let pose, gamepad;
-      if (inputSource && (pose = frame.getPose(inputSource.targetRaySpace, referenceSpace)) && (gamepad = inputSource.gamepad || gamepads[i])) {
-        const {transform} = pose;
-        const {position, orientation, matrix} = transform;
-        if (position) { // new WebXR api
+      let pose, gripPose, gamepad;
+      if (inputSource && (pose = frame.getPose(inputSource.targetRaySpace, referenceSpace)) && (gripPose = frame.getPose(inputSource.gripSpace, referenceSpace)) && (gamepad = inputSource.gamepad || gamepads[i])) {
+        {
+          const {transform: {position, orientation, matrix}} = pose;
           xrGamepad.position[0] = position.x;
           xrGamepad.position[1] = position.y;
           xrGamepad.position[2] = position.z;
@@ -447,19 +462,21 @@ core.animate = (timestamp, frame, referenceSpace) => {
           xrGamepad.orientation[1] = orientation.y;
           xrGamepad.orientation[2] = orientation.z;
           xrGamepad.orientation[3] = orientation.w;
-        } else if (matrix) { // old WebXR api
-          localMatrix
-            .fromArray(transform.matrix)
-            .decompose(localVector, localQuaternion, localVector2);
 
-          xrGamepad.position[0] = localVector.x;
-          xrGamepad.position[1] = localVector.y;
-          xrGamepad.position[2] = localVector.z;
+          xrGamepad.transformMatrix.set(matrix);
+        }
+        {
+          const {transform: {position, orientation, matrix}} = gripPose;
+          xrGamepad.gripPosition[0] = position.x;
+          xrGamepad.gripPosition[1] = position.y;
+          xrGamepad.gripPosition[2] = position.z;
 
-          xrGamepad.orientation[0] = localQuaternion.x;
-          xrGamepad.orientation[1] = localQuaternion.y;
-          xrGamepad.orientation[2] = localQuaternion.z;
-          xrGamepad.orientation[3] = localQuaternion.w;
+          xrGamepad.gripOrientation[0] = orientation.x;
+          xrGamepad.gripOrientation[1] = orientation.y;
+          xrGamepad.gripOrientation[2] = orientation.z;
+          xrGamepad.gripOrientation[3] = orientation.w;
+
+          xrGamepad.gripTransformMatrix.set(matrix);
         }
         
         for (let j = 0; j < gamepad.buttons.length; j++) {
@@ -487,7 +504,7 @@ core.animate = (timestamp, frame, referenceSpace) => {
     ctx.xrFramebuffer = framebuffer;
   }
   
-  _computeDerivedGamepadsData();
+  // _computeDerivedGamepadsData();
   _tickAnimationFrames();
 };
 core.setSession(null);

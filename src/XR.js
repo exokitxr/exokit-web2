@@ -477,11 +477,11 @@ class XRInputSource {
     this.targetRaySpace._pose._realViewMatrix = xrStateGamepad.transformMatrix;
     this.targetRaySpace._pose._localViewMatrix = this.targetRaySpace._pose.transform.inverse.matrix;
 
-    this.gripSpace = new XRSpace(); // XXX make separate
-    this.gripSpace._pose.transform.position._buffer = xrStateGamepad.position;
-    this.gripSpace._pose.transform.orientation._buffer = xrStateGamepad.orientation;
-    this.gripSpace._pose._realViewMatrix = xrStateGamepad.transformMatrix;
-    this.gripSpace._pose._localViewMatrix = this.targetRaySpace._pose.transform.inverse.matrix;
+    this.gripSpace = new XRSpace();
+    this.gripSpace._pose.transform.position._buffer = xrStateGamepad.gripPosition;
+    this.gripSpace._pose.transform.orientation._buffer = xrStateGamepad.gripOrientation;
+    this.gripSpace._pose._realViewMatrix = xrStateGamepad.gripTransformMatrix;
+    this.gripSpace._pose._localViewMatrix = this.gripSpace._pose.transform.inverse.matrix;
 
     /* this._inputPose = new XRInputPose();
     this._inputPose.targetRay.origin.values = xrStateGamepad.position;
