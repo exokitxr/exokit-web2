@@ -652,6 +652,17 @@ ProxiedWebGLRenderingContext.prototype.sampleCoverage = (_sampleCoverage => func
   this.state.sampleCoverageUnits = sampleCoverageUnits;
   return _sampleCoverage.apply(this, arguments);
 })(ProxiedWebGLRenderingContext.prototype.sampleCoverage);
+ProxiedWebGLRenderingContext.prototype.stencilFunc = (_stencilFunc => function stencilFunc(func, ref, mask) {
+  this.state.stencilBackFunc = func;
+  this.state.stencilBackRef = ref;
+  this.state.stencilBackValueMask = mask;
+
+  this.state.stencilFunc = func;
+  this.state.stencilRef = ref;
+  this.state.stencilValueMask = mask;
+
+  return _stencilFunc.apply(this, arguments);
+})(ProxiedWebGLRenderingContext.prototype.stencilFunc);
 ProxiedWebGLRenderingContext.prototype.stencilFuncSeparate = (_stencilFuncSeparate => function stencilFuncSeparate(face, func, ref, mask) {
   if (face === this.BACK) {
     this.state.stencilBackFunc = func;
