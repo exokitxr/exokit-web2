@@ -368,14 +368,14 @@ class XRFrame {
 
     return sourceSpace._pose;
   }
-  getInputPose(inputSource, coordinateSystem) { // non-standard
+  /* getInputPose(inputSource, coordinateSystem) { // non-standard
     const xrOffsetMatrix = GlobalContext.getXrOffsetMatrix();
     _applyXrOffsetToPose(inputSource._inputPose, xrOffsetMatrix, true, true);
     inputSource._inputPose.targetRay.transformMatrix.set(inputSource._inputPose._localViewMatrix);
     inputSource._inputPose.gripTransform.matrix.set(inputSource._inputPose._localViewMatrix);
 
     return inputSource._inputPose;
-  }
+  } */
 }
 
 class XRView {
@@ -483,11 +483,11 @@ class XRInputSource {
     this.gripSpace._pose._realViewMatrix = xrStateGamepad.transformMatrix;
     this.gripSpace._pose._localViewMatrix = this.targetRaySpace._pose.transform.inverse.matrix;
 
-    this._inputPose = new XRInputPose();
+    /* this._inputPose = new XRInputPose();
     this._inputPose.targetRay.origin.values = xrStateGamepad.position;
     this._inputPose.targetRay.direction.values = xrStateGamepad.direction;
     this._inputPose._realViewMatrix = xrStateGamepad.transformMatrix;
-    this._inputPose._localViewMatrix = Float32Array.from([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+    this._inputPose._localViewMatrix = Float32Array.from([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]); */
   }
   get connected() {
     return this._xrStateGamepad.connected[0] !== 0;

@@ -90,11 +90,11 @@ const xrState = (() => {
       result[3] = 1;
       return result;
     })(),
-    direction: (() => { // derived
-      const result = _makeTypedArray(Float32Array, 4);
+    /* direction: (() => { // derived
+      const result = _makeTypedArray(Float32Array, 3);
       result[2] = -1;
       return result;
-    })(),
+    })(), */
     transformMatrix: (() => { // derived
       const result = _makeTypedArray(Float32Array, 16);
       result.set(Float32Array.from([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]));
@@ -372,10 +372,10 @@ GlobalContext.handlePaymentRequest = handlePaymentRequest;
 const _computeDerivedGamepadsData = () => {
   const _deriveGamepadData = gamepad => {
     localQuaternion.fromArray(gamepad.orientation);
-    localVector
+    /* localVector
       .set(0, 0, -1)
       .applyQuaternion(localQuaternion)
-      .toArray(gamepad.direction);
+      .toArray(gamepad.direction); */
     localVector.fromArray(gamepad.position);
     localVector2.set(1, 1, 1);
     localMatrix
