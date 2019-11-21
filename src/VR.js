@@ -147,8 +147,7 @@ class Gamepad {
     this.buttons = (() => {
       const result = Array(xrGamepad.buttons.length);
       for (let i = 0; i < result.length; i++) {
-        const vrButtonIndex = xrToVrButtonMappings[i];
-        result[vrButtonIndex] = new GamepadButton(xrGamepad.buttons[i].value, xrGamepad.buttons[i].pressed, xrGamepad.buttons[i].touched);
+        result[i] = new GamepadButton(xrGamepad.buttons[i].value, xrGamepad.buttons[i].pressed, xrGamepad.buttons[i].touched);
       }
       return result;
     })();
@@ -163,6 +162,17 @@ class Gamepad {
   }
   set connected(connected) {
     this._xrGamepad.connected[0] = connected ? 1 : 0;
+  }
+
+  setVRButtons() {
+    const {_xrGamepad: xrGamepad} = this;
+    this.buttons = (() => {
+      const result = Array(xrGamepad.buttons.length);
+      for (let i = 0; i < result.length; i++) {
+        result[xrToVrButtonMappings[i]] = new GamepadButton(xrGamepad.buttons[i].value, xrGamepad.buttons[i].pressed, xrGamepad.buttons[i].touched);
+      }
+      return result;
+    })();
   }
 
   /* copy(gamepad) {
@@ -322,6 +332,13 @@ class VRDisplay extends EventTarget {
     const [{source: canvas}] = layers;
     const context = canvas.getContext('webgl');
     this.onmakeswapchain(context);
+
+    if (!globalGamepads) {
+      globalGamepads = _makeGlobalGamepads();
+    }
+    for (let i = 0; i < globalGamepads.main.length; i++) {
+      globalGamepads.main[i].setVRButtons();
+    }
 
     if (this.onvrdisplaypresentchange && !this.isPresenting) {
       this.isPresenting = true;
