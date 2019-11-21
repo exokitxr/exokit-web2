@@ -698,6 +698,11 @@ ProxiedWebGLRenderingContext.prototype.stencilOpSeparate = (_stencilOpSeparate =
   }
   return _stencilOpSeparate.apply(this, arguments);
 })(ProxiedWebGLRenderingContext.prototype.stencilOpSeparate);
+ProxiedWebGLRenderingContext.prototype.stencilMask = (_stencilMask => function stencilMask(face, mask) {
+  this.state.stencilBackWriteMask = mask;
+  this.state.stencilWriteMask = mask;
+  return _stencilMaskSeparate.apply(this, arguments);
+})(ProxiedWebGLRenderingContext.prototype.stencilMask);
 ProxiedWebGLRenderingContext.prototype.stencilMaskSeparate = (_stencilMaskSeparate => function stencilMaskSeparate(face, mask) {
   if (face === this.BACK) {
     this.state.stencilBackWriteMask = mask;
