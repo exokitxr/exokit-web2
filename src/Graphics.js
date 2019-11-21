@@ -675,6 +675,17 @@ ProxiedWebGLRenderingContext.prototype.stencilFuncSeparate = (_stencilFuncSepara
   }
   return _stencilFuncSeparate.apply(this, arguments);
 })(ProxiedWebGLRenderingContext.prototype.stencilFuncSeparate);
+ProxiedWebGLRenderingContext.prototype.stencilOp = (_stencilOp => function stencilOp(fail, zfail, zpass) {
+  this.state.stencilBackFail = fail;
+  this.state.stencilBackPassDepthFail = zfail;
+  this.state.stencilBackPassDepthPass = zpass;
+
+  this.state.stencilFail = fail;
+  this.state.stencilPassDepthFail = zfail;
+  this.state.stencilPassDepthPass = zpass;
+
+  return _stencilOp.apply(this, arguments);
+})(ProxiedWebGLRenderingContext.prototype.stencilOp);
 ProxiedWebGLRenderingContext.prototype.stencilOpSeparate = (_stencilOpSeparate => function stencilOpSeparate(face, fail, zfail, zpass) {
   if (face === this.BACK) {
     this.state.stencilBackFail = fail;
