@@ -142,83 +142,21 @@ class EventTarget {
   }
 }
 
-const PRIVATE$1 = Symbol('@@webxr-polyfill/XR');
-const XRSessionModes = ['inline', 'immersive-vr', 'immersive-ar'];
-const POLYFILL_REQUEST_SESSION_ERROR =
-`Polyfill Error: Must call navigator.xr.supportsSession() with any XRSessionMode
-or navigator.xr.requestSession('inline') prior to requesting an immersive
-session. This is a limitation specific to the WebXR Polyfill and does not apply
-to native implementations of the API.`;
-class XR$1 extends EventTarget {
-  constructor(devicePromise) {
-    super();
+const PRIVATE$1 = Symbol('@@webxr-polyfill/XRSpace');
+
+class XRSpace {
+  constructor(specialType = null, inputSource = null) {
     this[PRIVATE$1] = {
-      device: null,
-      devicePromise,
-      immersiveSession: null,
-      inlineSessions: new Set(),
-    };
-    devicePromise.then((device) => { this[PRIVATE$1].device = device; });
-  }
-  async supportsSession(mode) {
-    if (!this[PRIVATE$1].device) {
-      await this[PRIVATE$1].devicePromise;
-    }
-    if (mode != 'inline') {
-      if (!this[PRIVATE$1].device.supportsSession(mode)) {
-        return Promise.reject(null);
-      }
-    }
-    return Promise.resolve(null);
-  }
-  async requestSession(mode) {
-    if (!this[PRIVATE$1].device) {
-      if (mode != 'inline') {
-        throw new Error(POLYFILL_REQUEST_SESSION_ERROR);
-      } else {
-        await this[PRIVATE$1].devicePromise;
-      }
-    }
-    const sessionId = await this[PRIVATE$1].device.requestSession(mode);
-    const session = new XRSession(this[PRIVATE$1].device, mode, sessionId);
-    if (mode == 'inline') {
-      this[PRIVATE$1].inlineSessions.add(session);
-    } else {
-      this[PRIVATE$1].immersiveSession = session;
-    }
-    const onSessionEnd = () => {
-      if (mode == 'inline') {
-        this[PRIVATE$1].inlineSessions.delete(session);
-      } else {
-        this[PRIVATE$1].immersiveSession = null;
-      }
-      session.removeEventListener('end', onSessionEnd);
-    };
-    session.addEventListener('end', onSessionEnd);
-    return session;
-  }
-}
-
-let now;
-if ('performance' in _global === false) {
-  let startTime = Date.now();
-  now = () => Date.now() - startTime;
-} else {
-  now = () => performance.now();
-}
-var now$1 = now;
-
-const PRIVATE$2 = Symbol('@@webxr-polyfill/XRPose');
-class XRPose$1 {
-  constructor(transform, emulatedPosition) {
-    this[PRIVATE$2] = {
-      transform,
-      emulatedPosition,
+      specialType,
+      inputSource,
     };
   }
-  get transform() { return this[PRIVATE$2].transform; }
-  get emulatedPosition() { return this[PRIVATE$2].emulatedPosition; }
-  _setTransform(transform) { this[PRIVATE$2].transform = transform; }
+  get _specialType() {
+    return this[PRIVATE$1].specialType;
+  }
+  get _inputSource() {
+    return this[PRIVATE$1].inputSource;
+  }
 }
 
 const EPSILON = 0.000001;
@@ -471,6 +409,187 @@ function perspective(out, fovy, aspect, near, far) {
     out[14] = -2 * near;
   }
   return out;
+}
+
+const DEFAULT_EMULATION_HEIGHT = 1.6;
+const PRIVATE$2 = Symbol('@@webxr-polyfill/XRReferenceSpace');
+const XRReferenceSpaceTypes = [
+  'viewer',
+  'local',
+  'local-floor',
+  'bounded-floor',
+  'unbounded'
+];
+function isFloor(type) {
+  return type === 'bounded-floor' || type === 'local-floor';
+}
+class XRReferenceSpace extends XRSpace {
+  constructor(device, type, transform) {
+    if (!XRReferenceSpaceTypes.includes(type)) {
+      throw new Error(`XRReferenceSpaceType must be one of ${XRReferenceSpaceTypes}`);
+    }
+    super((type === 'viewer') ? 'viewer' : null);
+    if (type === 'bounded-floor' && !transform) {
+      throw new Error(`XRReferenceSpace cannot use 'bounded-floor' type if the platform does not provide the floor level`);
+    }
+    if (isFloor(type) && !transform) {
+      transform = identity(new Float32Array(16));
+      transform[13] = DEFAULT_EMULATION_HEIGHT;
+    }
+    if (!transform) {
+      transform = identity(new Float32Array(16));
+    }
+    this[PRIVATE$2] = {
+      type,
+      transform,
+      device,
+      originOffset : identity(new Float32Array(16)),
+    };
+  }
+  _transformBasePoseMatrix(out, pose) {
+    multiply(out, this[PRIVATE$2].transform, pose);
+  }
+  _transformBaseViewMatrix(out, view) {
+    invert(out, this[PRIVATE$2].transform);
+    multiply(out, view, out);
+  }
+  _originOffsetMatrix() {
+    return this[PRIVATE$2].originOffset;
+  }
+  _adjustForOriginOffset(transformMatrix) {
+    let inverseOriginOffsetMatrix = identity(new Float32Array(16));
+    invert(inverseOriginOffsetMatrix, this[PRIVATE$2].originOffset);
+    multiply(transformMatrix, inverseOriginOffsetMatrix, transformMatrix);
+  }
+  getOffsetReferenceSpace(additionalOffset) {
+    let newSpace = new XRReferenceSpace(
+      this[PRIVATE$2].device,
+      this[PRIVATE$2].type,
+      this[PRIVATE$2].transform,
+      this[PRIVATE$2].bounds);
+    multiply(newSpace[PRIVATE$2].originOffset, this[PRIVATE$2].originOffset, additionalOffset.matrix);
+    return newSpace;
+  }
+}
+
+const PRIVATE$3 = Symbol('@@webxr-polyfill/XR');
+const XRSessionModes = ['inline', 'immersive-vr', 'immersive-ar'];
+const DEFAULT_SESSION_OPTIONS = {
+  'inline': {
+    requiredFeatures: ['viewer'],
+    optionalFeatures: [],
+  },
+  'immersive-vr': {
+    requiredFeatures: ['viewer', 'local'],
+    optionalFeatures: [],
+  },
+  'immersive-ar': {
+    requiredFeatures: ['viewer', 'local'],
+    optionalFeatures: [],
+  }
+};
+const POLYFILL_REQUEST_SESSION_ERROR =
+`Polyfill Error: Must call navigator.xr.isSessionSupported() with any XRSessionMode
+or navigator.xr.requestSession('inline') prior to requesting an immersive
+session. This is a limitation specific to the WebXR Polyfill and does not apply
+to native implementations of the API.`;
+class XR$1 extends EventTarget {
+  constructor(devicePromise) {
+    super();
+    this[PRIVATE$3] = {
+      device: null,
+      devicePromise,
+      immersiveSession: null,
+      inlineSessions: new Set(),
+    };
+    devicePromise.then((device) => { this[PRIVATE$3].device = device; });
+  }
+  async isSessionSupported(mode) {
+    if (!this[PRIVATE$3].device) {
+      await this[PRIVATE$3].devicePromise;
+    }
+    if (mode != 'inline') {
+      return Promise.resolve(this[PRIVATE$3].device.isSessionSupported(mode));
+    }
+    return Promise.resolve(true);
+  }
+  async requestSession(mode, options) {
+    if (!this[PRIVATE$3].device) {
+      if (mode != 'inline') {
+        throw new Error(POLYFILL_REQUEST_SESSION_ERROR);
+      } else {
+        await this[PRIVATE$3].devicePromise;
+      }
+    }
+    if (!XRSessionModes.includes(mode)) {
+      throw new TypeError(
+          `The provided value '${mode}' is not a valid enum value of type XRSessionMode`);
+    }
+    const defaultOptions = DEFAULT_SESSION_OPTIONS[mode];
+    const requiredFeatures = defaultOptions.requiredFeatures.concat(
+        options && options.requiredFeatures ? options.requiredFeatures : []);
+    const optionalFeatures = defaultOptions.optionalFeatures.concat(
+        options && options.optionalFeatures ? options.optionalFeatures : []);
+    const enabledFeatures = new Set();
+    let requirementsFailed = false;
+    for (let feature of requiredFeatures) {
+      if (!this[PRIVATE$3].device.isFeatureSupported(feature)) {
+        console.error(`The required feature '${feature}' is not supported`);
+        requirementsFailed = true;
+      } else {
+        enabledFeatures.add(feature);
+      }
+    }
+    if (requirementsFailed) {
+      throw new DOMException('Session does not support some required features', 'NotSupportedError');
+    }
+    for (let feature of optionalFeatures) {
+      if (!this[PRIVATE$3].device.isFeatureSupported(feature)) {
+        console.log(`The optional feature '${feature}' is not supported`);
+      } else {
+        enabledFeatures.add(feature);
+      }
+    }
+    const sessionId = await this[PRIVATE$3].device.requestSession(mode, enabledFeatures);
+    const session = new XRSession(this[PRIVATE$3].device, mode, sessionId);
+    if (mode == 'inline') {
+      this[PRIVATE$3].inlineSessions.add(session);
+    } else {
+      this[PRIVATE$3].immersiveSession = session;
+    }
+    const onSessionEnd = () => {
+      if (mode == 'inline') {
+        this[PRIVATE$3].inlineSessions.delete(session);
+      } else {
+        this[PRIVATE$3].immersiveSession = null;
+      }
+      session.removeEventListener('end', onSessionEnd);
+    };
+    session.addEventListener('end', onSessionEnd);
+    return session;
+  }
+}
+
+let now;
+if ('performance' in _global === false) {
+  let startTime = Date.now();
+  now = () => Date.now() - startTime;
+} else {
+  now = () => performance.now();
+}
+var now$1 = now;
+
+const PRIVATE$4 = Symbol('@@webxr-polyfill/XRPose');
+class XRPose$1 {
+  constructor(transform, emulatedPosition) {
+    this[PRIVATE$4] = {
+      transform,
+      emulatedPosition,
+    };
+  }
+  get transform() { return this[PRIVATE$4].transform; }
+  get emulatedPosition() { return this[PRIVATE$4].emulatedPosition; }
+  _setTransform(transform) { this[PRIVATE$4].transform = transform; }
 }
 
 function create$1() {
@@ -948,61 +1067,61 @@ const setAxes = (function() {
   };
 })();
 
-const PRIVATE$3 = Symbol('@@webxr-polyfill/XRRigidTransform');
+const PRIVATE$5 = Symbol('@@webxr-polyfill/XRRigidTransform');
 class XRRigidTransform$1 {
   constructor() {
-    this[PRIVATE$3] = {
+    this[PRIVATE$5] = {
       matrix: null,
       position: null,
       orientation: null,
       inverse: null,
     };
     if (arguments.length === 0) {
-      this[PRIVATE$3].matrix = identity(new Float32Array(16));
+      this[PRIVATE$5].matrix = identity(new Float32Array(16));
     } else if (arguments.length === 1) {
       if (arguments[0] instanceof Float32Array) {
-        this[PRIVATE$3].matrix = arguments[0];
+        this[PRIVATE$5].matrix = arguments[0];
       } else {
-        this[PRIVATE$3].position = this._getPoint(arguments[0]);
-        this[PRIVATE$3].orientation = DOMPointReadOnly.fromPoint({
+        this[PRIVATE$5].position = this._getPoint(arguments[0]);
+        this[PRIVATE$5].orientation = DOMPointReadOnly.fromPoint({
             x: 0, y: 0, z: 0, w: 1
         });
       }
     } else if (arguments.length === 2) {
-      this[PRIVATE$3].position = this._getPoint(arguments[0]);
-      this[PRIVATE$3].orientation = this._getPoint(arguments[1]);
+      this[PRIVATE$5].position = this._getPoint(arguments[0]);
+      this[PRIVATE$5].orientation = this._getPoint(arguments[1]);
     } else {
       throw new Error("Too many arguments!");
     }
-    if (this[PRIVATE$3].matrix) {
+    if (this[PRIVATE$5].matrix) {
         let position = create$1();
-        getTranslation(position, this[PRIVATE$3].matrix);
-        this[PRIVATE$3].position = DOMPointReadOnly.fromPoint({
+        getTranslation(position, this[PRIVATE$5].matrix);
+        this[PRIVATE$5].position = DOMPointReadOnly.fromPoint({
             x: position[0],
             y: position[1],
             z: position[2]
         });
         let orientation = create$4();
-        getRotation(orientation, this[PRIVATE$3].matrix);
-        this[PRIVATE$3].orientation = DOMPointReadOnly.fromPoint({
+        getRotation(orientation, this[PRIVATE$5].matrix);
+        this[PRIVATE$5].orientation = DOMPointReadOnly.fromPoint({
           x: orientation[0],
           y: orientation[1],
           z: orientation[2],
           w: orientation[3]
         });
     } else {
-        this[PRIVATE$3].matrix = identity(new Float32Array(16));
+        this[PRIVATE$5].matrix = identity(new Float32Array(16));
         fromRotationTranslation(
-          this[PRIVATE$3].matrix,
+          this[PRIVATE$5].matrix,
           fromValues$4(
-            this[PRIVATE$3].orientation.x,
-            this[PRIVATE$3].orientation.y,
-            this[PRIVATE$3].orientation.z,
-            this[PRIVATE$3].orientation.w),
+            this[PRIVATE$5].orientation.x,
+            this[PRIVATE$5].orientation.y,
+            this[PRIVATE$5].orientation.z,
+            this[PRIVATE$5].orientation.w),
           fromValues$1(
-            this[PRIVATE$3].position.x,
-            this[PRIVATE$3].position.y,
-            this[PRIVATE$3].position.z)
+            this[PRIVATE$5].position.x,
+            this[PRIVATE$5].position.y,
+            this[PRIVATE$5].position.z)
         );
     }
   }
@@ -1012,25 +1131,25 @@ class XRRigidTransform$1 {
     }
     return DOMPointReadOnly.fromPoint(arg);
   }
-  get matrix() { return this[PRIVATE$3].matrix; }
-  get position() { return this[PRIVATE$3].position; }
-  get orientation() { return this[PRIVATE$3].orientation; }
+  get matrix() { return this[PRIVATE$5].matrix; }
+  get position() { return this[PRIVATE$5].position; }
+  get orientation() { return this[PRIVATE$5].orientation; }
   get inverse() {
-    if (this[PRIVATE$3].inverse === null) {
+    if (this[PRIVATE$5].inverse === null) {
       let invMatrix = identity(new Float32Array(16));
-      invert(invMatrix, this[PRIVATE$3].matrix);
-      this[PRIVATE$3].inverse = new XRRigidTransform$1(invMatrix);
-      this[PRIVATE$3].inverse[PRIVATE$3].inverse = this;
+      invert(invMatrix, this[PRIVATE$5].matrix);
+      this[PRIVATE$5].inverse = new XRRigidTransform$1(invMatrix);
+      this[PRIVATE$5].inverse[PRIVATE$5].inverse = this;
     }
-    return this[PRIVATE$3].inverse;
+    return this[PRIVATE$5].inverse;
   }
 }
 
-const PRIVATE$4 = Symbol('@@webxr-polyfill/XRViewerPose');
+const PRIVATE$6 = Symbol('@@webxr-polyfill/XRViewerPose');
 class XRViewerPose extends XRPose$1 {
   constructor(device, views) {
     super(new XRRigidTransform$1(), false);
-    this[PRIVATE$4] = {
+    this[PRIVATE$6] = {
       device,
       views,
       leftViewMatrix: identity(new Float32Array(16)),
@@ -1038,62 +1157,60 @@ class XRViewerPose extends XRPose$1 {
       poseModelMatrix: identity(new Float32Array(16)),
     };
   }
-  get poseModelMatrix() { return this[PRIVATE$4].poseModelMatrix; }
+  get poseModelMatrix() { return this[PRIVATE$6].poseModelMatrix; }
   get views() {
-    return this[PRIVATE$4].views;
+    return this[PRIVATE$6].views;
   }
   _updateFromReferenceSpace(refSpace) {
-    const pose = this[PRIVATE$4].device.getBasePoseMatrix();
-    const leftViewMatrix = this[PRIVATE$4].device.getBaseViewMatrix('left');
-    const rightViewMatrix = this[PRIVATE$4].device.getBaseViewMatrix('right');
+    const pose = this[PRIVATE$6].device.getBasePoseMatrix();
+    const leftViewMatrix = this[PRIVATE$6].device.getBaseViewMatrix('left');
+    const rightViewMatrix = this[PRIVATE$6].device.getBaseViewMatrix('right');
     if (pose) {
-      refSpace._transformBasePoseMatrix(this[PRIVATE$4].poseModelMatrix, pose);
-      refSpace._adjustForOriginOffset(this[PRIVATE$4].poseModelMatrix);
-      super._setTransform(new XRRigidTransform$1(this[PRIVATE$4].poseModelMatrix));
+      refSpace._transformBasePoseMatrix(this[PRIVATE$6].poseModelMatrix, pose);
+      refSpace._adjustForOriginOffset(this[PRIVATE$6].poseModelMatrix);
+      super._setTransform(new XRRigidTransform$1(this[PRIVATE$6].poseModelMatrix));
     }
     if (leftViewMatrix) {
       refSpace._transformBaseViewMatrix(
-        this[PRIVATE$4].leftViewMatrix,
-        leftViewMatrix,
-        this[PRIVATE$4].poseModelMatrix);
+        this[PRIVATE$6].leftViewMatrix,
+        leftViewMatrix);
       multiply(
-        this[PRIVATE$4].leftViewMatrix,
-        this[PRIVATE$4].leftViewMatrix,
+        this[PRIVATE$6].leftViewMatrix,
+        this[PRIVATE$6].leftViewMatrix,
         refSpace._originOffsetMatrix());
     }
     if (rightViewMatrix) {
       refSpace._transformBaseViewMatrix(
-        this[PRIVATE$4].rightViewMatrix,
-        rightViewMatrix,
-        this[PRIVATE$4].poseModelMatrix);
+        this[PRIVATE$6].rightViewMatrix,
+        rightViewMatrix);
       multiply(
-        this[PRIVATE$4].rightViewMatrix,
-        this[PRIVATE$4].rightViewMatrix,
+        this[PRIVATE$6].rightViewMatrix,
+        this[PRIVATE$6].rightViewMatrix,
         refSpace._originOffsetMatrix());
     }
-    for (let view of this[PRIVATE$4].views) {
-      if (view.eye == "left") {
-        view._updateViewMatrix(this[PRIVATE$4].leftViewMatrix);
+    for (let view of this[PRIVATE$6].views) {
+      if (view.eye == "left" || view.eye == "none") {
+        view._updateViewMatrix(this[PRIVATE$6].leftViewMatrix);
       } else if (view.eye == "right") {
-        view._updateViewMatrix(this[PRIVATE$4].rightViewMatrix);
+        view._updateViewMatrix(this[PRIVATE$6].rightViewMatrix);
       }
     }
   }
 }
 
-const PRIVATE$5 = Symbol('@@webxr-polyfill/XRViewport');
+const PRIVATE$7 = Symbol('@@webxr-polyfill/XRViewport');
 class XRViewport {
   constructor(target) {
-    this[PRIVATE$5] = { target };
+    this[PRIVATE$7] = { target };
   }
-  get x() { return this[PRIVATE$5].target.x; }
-  get y() { return this[PRIVATE$5].target.y; }
-  get width() { return this[PRIVATE$5].target.width; }
-  get height() { return this[PRIVATE$5].target.height; }
+  get x() { return this[PRIVATE$7].target.x; }
+  get y() { return this[PRIVATE$7].target.y; }
+  get width() { return this[PRIVATE$7].target.width; }
+  get height() { return this[PRIVATE$7].target.height; }
 }
 
-const XREyes = ['left', 'right'];
-const PRIVATE$6 = Symbol('@@webxr-polyfill/XRView');
+const XREyes = ['left', 'right', 'none'];
+const PRIVATE$8 = Symbol('@@webxr-polyfill/XRView');
 class XRView {
   constructor(device, eye, sessionId) {
     if (!XREyes.includes(eye)) {
@@ -1101,7 +1218,7 @@ class XRView {
     }
     const temp = Object.create(null);
     const viewport = new XRViewport(temp);
-    this[PRIVATE$6] = {
+    this[PRIVATE$8] = {
       device,
       eye,
       viewport,
@@ -1110,20 +1227,20 @@ class XRView {
       transform: null,
     };
   }
-  get eye() { return this[PRIVATE$6].eye; }
-  get projectionMatrix() { return this[PRIVATE$6].device.getProjectionMatrix(this.eye); }
-  get transform() { return this[PRIVATE$6].transform; }
+  get eye() { return this[PRIVATE$8].eye; }
+  get projectionMatrix() { return this[PRIVATE$8].device.getProjectionMatrix(this.eye); }
+  get transform() { return this[PRIVATE$8].transform; }
   _updateViewMatrix(viewMatrix) {
     let invMatrix = identity(new Float32Array(16));
     invert(invMatrix, viewMatrix);
-    this[PRIVATE$6].transform = new XRRigidTransform$1(invMatrix);
+    this[PRIVATE$8].transform = new XRRigidTransform$1(invMatrix);
   }
   _getViewport(layer) {
-    if (this[PRIVATE$6].device.getViewport(this[PRIVATE$6].sessionId,
+    if (this[PRIVATE$8].device.getViewport(this[PRIVATE$8].sessionId,
                                            this.eye,
                                            layer,
-                                           this[PRIVATE$6].temp)) {
-      return this[PRIVATE$6].viewport;
+                                           this[PRIVATE$8].temp)) {
+      return this[PRIVATE$8].viewport;
     }
     return undefined;
   }
@@ -1590,28 +1707,42 @@ var forEach$4 = function () {
   };
 }();
 
-const PRIVATE$7 = Symbol('@@webxr-polyfill/XRFrame');
+const PRIVATE$9 = Symbol('@@webxr-polyfill/XRFrame');
+const NON_ACTIVE_MSG = "XRFrame access outside the callback that produced it is invalid.";
+const NON_ANIMFRAME_MSG = "getViewerPose can only be called on XRFrame objects passed to XRSession.requestAnimationFrame callbacks.";
 class XRFrame {
-  constructor(device, session, sessionId) {
-    const views = [
-      new XRView(device, 'left', sessionId),
-    ];
-    if (session.immersive) {
-      views.push(new XRView(device, 'right', sessionId));
+  constructor(device, session, stereo, sessionId) {
+    const views = [];
+    if (stereo) {
+      views.push(new XRView(device, 'left', sessionId),
+                 new XRView(device, 'right', sessionId));
+    } else {
+      views.push(new XRView(device, 'none', sessionId));
     }
-    this[PRIVATE$7] = {
+    this[PRIVATE$9] = {
+      active: false,
+      animationFrame: false,
       device,
       viewerPose: new XRViewerPose(device, views),
       views,
       session,
     };
   }
-  get session() { return this[PRIVATE$7].session; }
+  get session() { return this[PRIVATE$9].session; }
   getViewerPose(space) {
-    this[PRIVATE$7].viewerPose._updateFromReferenceSpace(space);
-    return this[PRIVATE$7].viewerPose;
+    if (!this[PRIVATE$9].animationFrame) {
+      throw new DOMException(NON_ANIMFRAME_MSG, 'InvalidStateError');
+    }
+    if (!this[PRIVATE$9].active) {
+      throw new DOMException(NON_ACTIVE_MSG, 'InvalidStateError');
+    }
+    this[PRIVATE$9].viewerPose._updateFromReferenceSpace(space);
+    return this[PRIVATE$9].viewerPose;
   }
   getPose(space, baseSpace) {
+    if (!this[PRIVATE$9].active) {
+      throw new DOMException(NON_ACTIVE_MSG, 'InvalidStateError');
+    }
     if (space._specialType === "viewer") {
       let viewerPose = this.getViewerPose(baseSpace);
       return new XRPose(
@@ -1619,95 +1750,35 @@ class XRFrame {
         viewerPose.emulatedPosition);
     }
     if (space._specialType === "target-ray" || space._specialType === "grip") {
-      return this[PRIVATE$7].device.getInputPose(
+      return this[PRIVATE$9].device.getInputPose(
         space._inputSource, baseSpace, space._specialType);
     }
     return null;
   }
 }
 
-const PRIVATE$8 = Symbol('@@webxr-polyfill/XRSpace');
-
-class XRSpace {
-  constructor(specialType = null, inputSource = null) {
-    this[PRIVATE$8] = {
-      specialType,
-      inputSource,
-    };
+const PRIVATE$10 = Symbol('@@webxr-polyfill/XRRenderState');
+const XRRenderStateInit = Object.freeze({
+  depthNear: 0.1,
+  depthFar: 1000.0,
+  inlineVerticalFieldOfView: null,
+  baseLayer: null
+});
+class XRRenderState {
+  constructor(stateInit = {}) {
+    const config = Object.assign({}, XRRenderStateInit, stateInit);
+    this[PRIVATE$10] = { config };
   }
-  get _specialType() {
-    return this[PRIVATE$8].specialType;
-  }
-  get _inputSource() {
-    return this[PRIVATE$8].inputSource;
-  }
-}
-
-const DEFAULT_EMULATION_HEIGHT = 1.6;
-const PRIVATE$9 = Symbol('@@webxr-polyfill/XRReferenceSpace');
-const XRReferenceSpaceTypes = [
-  'viewer',
-  'local',
-  'local-floor',
-  'bounded-floor',
-  'unbounded'
-];
-function isFloor(type) {
-  return type === 'bounded-floor' || type === 'local-floor';
-}
-class XRReferenceSpace extends XRSpace {
-  constructor(device, type, transform) {
-    if (!XRReferenceSpaceTypes.includes(type)) {
-      throw new Error(`XRReferenceSpaceType must be one of ${XRReferenceSpaceTypes}`);
-    }
-    super((type === 'viewer') ? 'viewer' : null);
-    if (type === 'bounded-floor' && !transform) {
-      throw new Error(`XRReferenceSpace cannot use 'bounded-floor' type if the platform does not provide the floor level`);
-    }
-    if (isFloor(type) && !transform) {
-      transform = identity(new Float32Array(16));
-      transform[13] = DEFAULT_EMULATION_HEIGHT;
-    }
-    if (!transform) {
-      transform = identity(new Float32Array(16));
-    }
-    this[PRIVATE$9] = {
-      type,
-      transform,
-      device,
-      originOffset : identity(new Float32Array(16)),
-    };
-  }
-  _transformBasePoseMatrix(out, pose) {
-    multiply(out, this[PRIVATE$9].transform, pose);
-  }
-  _transformBaseViewMatrix(out, view) {
-    invert(out, this[PRIVATE$9].transform);
-    multiply(out, view, out);
-  }
-  _originOffsetMatrix() {
-    return this[PRIVATE$9].originOffset;
-  }
-  _adjustForOriginOffset(transformMatrix) {
-    let inverseOriginOffsetMatrix = identity(new Float32Array(16));
-    invert(inverseOriginOffsetMatrix, this[PRIVATE$9].originOffset);
-    multiply(transformMatrix, inverseOriginOffsetMatrix, transformMatrix);
-  }
-  getOffsetReferenceSpace(additionalOffset) {
-    let newSpace = new XRReferenceSpace(
-      this[PRIVATE$9].device,
-      this[PRIVATE$9].type,
-      this[PRIVATE$9].transform,
-      this[PRIVATE$9].bounds);
-    multiply(newSpace[PRIVATE$9].originOffset, this[PRIVATE$9].originOffset, additionalOffset.matrix);
-    return newSpace;
-  }
+  get depthNear() { return this[PRIVATE$10].config.depthNear; }
+  get depthFar() { return this[PRIVATE$10].config.depthFar; }
+  get inlineVerticalFieldOfView() { return this[PRIVATE$10].config.inlineVerticalFieldOfView; }
+  get baseLayer() { return this[PRIVATE$10].config.baseLayer; }
 }
 
 const POLYFILLED_XR_COMPATIBLE = Symbol('@@webxr-polyfill/polyfilled-xr-compatible');
 const XR_COMPATIBLE = Symbol('@@webxr-polyfill/xr-compatible');
 
-const PRIVATE$10 = Symbol('@@webxr-polyfill/XRWebGLLayer');
+const PRIVATE$11 = Symbol('@@webxr-polyfill/XRWebGLLayer');
 const XRWebGLLayerInit = Object.freeze({
   antialias: true,
   depth: false,
@@ -1732,96 +1803,185 @@ class XRWebGLLayer {
       }
     }
     const framebuffer = context.getParameter(context.FRAMEBUFFER_BINDING);
-    this[PRIVATE$10] = {
+    this[PRIVATE$11] = {
       context,
       config,
       framebuffer,
       session,
     };
   }
-  get context() { return this[PRIVATE$10].context; }
-  get antialias() { return this[PRIVATE$10].config.antialias; }
+  get context() { return this[PRIVATE$11].context; }
+  get antialias() { return this[PRIVATE$11].config.antialias; }
   get ignoreDepthValues() { return true; }
-  get framebuffer() { return this[PRIVATE$10].framebuffer; }
-  get framebufferWidth() { return this[PRIVATE$10].context.drawingBufferWidth; }
-  get framebufferHeight() { return this[PRIVATE$10].context.drawingBufferHeight; }
-  get _session() { return this[PRIVATE$10].session; }
+  get framebuffer() { return this[PRIVATE$11].framebuffer; }
+  get framebufferWidth() { return this[PRIVATE$11].context.drawingBufferWidth; }
+  get framebufferHeight() { return this[PRIVATE$11].context.drawingBufferHeight; }
+  get _session() { return this[PRIVATE$11].session; }
   getViewport(view) {
     return view._getViewport(this);
   }
 }
 
-const PRIVATE$11 = Symbol('@@webxr-polyfill/XRSession');
+const PRIVATE$12 = Symbol('@@webxr-polyfill/XRInputSourceEvent');
+class XRInputSourceEvent extends Event {
+  constructor(type, eventInitDict) {
+    super(type, eventInitDict);
+    this[PRIVATE$12] = {
+      frame: eventInitDict.frame,
+      inputSource: eventInitDict.inputSource
+    };
+  }
+  get frame() { return this[PRIVATE$12].frame; }
+  get inputSource() { return this[PRIVATE$12].inputSource; }
+}
+
+const PRIVATE$13 = Symbol('@@webxr-polyfill/XRSessionEvent');
+class XRSessionEvent extends Event {
+  constructor(type, eventInitDict) {
+    super(type, eventInitDict);
+    this[PRIVATE$13] = {
+      session: eventInitDict.session
+    };
+  }
+  get session() { return this[PRIVATE$13].session; }
+}
+
+const PRIVATE$14 = Symbol('@@webxr-polyfill/XRInputSourcesChangeEvent');
+class XRInputSourcesChangeEvent extends Event {
+  constructor(type, eventInitDict) {
+    super(type, eventInitDict);
+    this[PRIVATE$14] = {
+      session: eventInitDict.session,
+      added: eventInitDict.added,
+      removed: eventInitDict.removed
+    };
+  }
+  get session() { return this[PRIVATE$14].session; }
+  get added() { return this[PRIVATE$14].added; }
+  get removed() { return this[PRIVATE$14].removed; }
+}
+
+const PRIVATE$15 = Symbol('@@webxr-polyfill/XRSession');
 class XRSession$1 extends EventTarget {
   constructor(device, mode, id) {
     super();
     let immersive = mode != 'inline';
-    let outputContext = null;
-    this[PRIVATE$11] = {
+    this[PRIVATE$15] = {
       device,
       mode,
       immersive,
-      outputContext,
       ended: false,
       suspended: false,
-      suspendedCallback: null,
+      frameCallbacks: [],
+      currentFrameCallbacks: null,
+      frameHandle: 0,
+      deviceFrameHandle: null,
       id,
-      activeRenderState: null,
+      activeRenderState: new XRRenderState(),
       pendingRenderState: null,
+      currentInputSources: []
     };
-    const frame = new XRFrame(device, this, this[PRIVATE$11].id);
-    this[PRIVATE$11].frame = frame;
-    this[PRIVATE$11].onPresentationEnd = sessionId => {
-      if (sessionId !== this[PRIVATE$11].id) {
-        this[PRIVATE$11].suspended = false;
-        this.dispatchEvent('focus', { session: this });
-        const suspendedCallback = this[PRIVATE$11].suspendedCallback;
-        this[PRIVATE$11].suspendedCallback = null;
-        if (suspendedCallback) {
-          this.requestAnimationFrame(suspendedCallback);
+    this[PRIVATE$15].onDeviceFrame = () => {
+      if (this[PRIVATE$15].ended || this[PRIVATE$15].suspended) {
+        return;
+      }
+      this[PRIVATE$15].deviceFrameHandle = null;
+      this[PRIVATE$15].startDeviceFrameLoop();
+      if (this[PRIVATE$15].pendingRenderState !== null) {
+        this[PRIVATE$15].activeRenderState = new XRRenderState(this[PRIVATE$15].pendingRenderState);
+        this[PRIVATE$15].pendingRenderState = null;
+        if (this[PRIVATE$15].activeRenderState.baseLayer) {
+          this[PRIVATE$15].device.onBaseLayerSet(
+            this[PRIVATE$15].id,
+            this[PRIVATE$15].activeRenderState.baseLayer);
         }
+      }
+      if (this[PRIVATE$15].activeRenderState.baseLayer === null) {
         return;
       }
-      this[PRIVATE$11].ended = true;
-      device.removeEventListener('@webvr-polyfill/vr-present-end', this[PRIVATE$11].onPresentationEnd);
-      device.removeEventListener('@webvr-polyfill/vr-present-start', this[PRIVATE$11].onPresentationStart);
-      device.removeEventListener('@@webvr-polyfill/input-select-start', this[PRIVATE$11].onSelectStart);
-      device.removeEventListener('@@webvr-polyfill/input-select-end', this[PRIVATE$11].onSelectEnd);
-      this.dispatchEvent('end', { session: this });
+      const frame = new XRFrame(device, this, immersive, this[PRIVATE$15].id);
+      const callbacks = this[PRIVATE$15].currentFrameCallbacks = this[PRIVATE$15].frameCallbacks;
+      this[PRIVATE$15].frameCallbacks = [];
+      frame[PRIVATE$9].active = true;
+      frame[PRIVATE$9].animationFrame = true;
+      this[PRIVATE$15].device.onFrameStart(this[PRIVATE$15].id, this[PRIVATE$15].activeRenderState);
+      this._checkInputSourcesChange();
+      const rightNow = now$1();
+      for (let i = 0; i < callbacks.length; i++) {
+        try {
+          if (!callbacks[i].cancelled && typeof callbacks[i].callback === 'function') {
+            callbacks[i].callback(rightNow, frame);
+          }
+        } catch(err) {
+          console.error(err);
+        }
+      }
+      this[PRIVATE$15].currentFrameCallbacks = null;
+      frame[PRIVATE$9].active = false;
+      this[PRIVATE$15].device.onFrameEnd(this[PRIVATE$15].id);
     };
-    device.addEventListener('@@webxr-polyfill/vr-present-end', this[PRIVATE$11].onPresentationEnd);
-    this[PRIVATE$11].onPresentationStart = sessionId => {
-      if (sessionId === this[PRIVATE$11].id) {
+    this[PRIVATE$15].startDeviceFrameLoop = () => {
+      if (this[PRIVATE$15].deviceFrameHandle === null) {
+        this[PRIVATE$15].deviceFrameHandle = this[PRIVATE$15].device.requestAnimationFrame(
+          this[PRIVATE$15].onDeviceFrame
+        );
+      }
+    };
+    this[PRIVATE$15].stopDeviceFrameLoop = () => {
+      const handle = this[PRIVATE$15].deviceFrameHandle;
+      if (handle !== null) {
+        this[PRIVATE$15].device.cancelAnimationFrame(handle);
+        this[PRIVATE$15].deviceFrameHandle = null;
+      }
+    };
+    this[PRIVATE$15].onPresentationEnd = sessionId => {
+      if (sessionId !== this[PRIVATE$15].id) {
+        this[PRIVATE$15].suspended = false;
+        this[PRIVATE$15].startDeviceFrameLoop();
+        this.dispatchEvent('focus', { session: this });
         return;
       }
-      this[PRIVATE$11].suspended = true;
+      this[PRIVATE$15].ended = true;
+      this[PRIVATE$15].stopDeviceFrameLoop();
+      device.removeEventListener('@webvr-polyfill/vr-present-end', this[PRIVATE$15].onPresentationEnd);
+      device.removeEventListener('@webvr-polyfill/vr-present-start', this[PRIVATE$15].onPresentationStart);
+      device.removeEventListener('@@webvr-polyfill/input-select-start', this[PRIVATE$15].onSelectStart);
+      device.removeEventListener('@@webvr-polyfill/input-select-end', this[PRIVATE$15].onSelectEnd);
+      this.dispatchEvent('end', new XRSessionEvent('end', { session: this }));
+    };
+    device.addEventListener('@@webxr-polyfill/vr-present-end', this[PRIVATE$15].onPresentationEnd);
+    this[PRIVATE$15].onPresentationStart = sessionId => {
+      if (sessionId === this[PRIVATE$15].id) {
+        return;
+      }
+      this[PRIVATE$15].suspended = true;
+      this[PRIVATE$15].stopDeviceFrameLoop();
       this.dispatchEvent('blur', { session: this });
     };
-    device.addEventListener('@@webxr-polyfill/vr-present-start', this[PRIVATE$11].onPresentationStart);
-    this[PRIVATE$11].onSelectStart = evt => {
-      if (evt.sessionId !== this[PRIVATE$11].id) {
+    device.addEventListener('@@webxr-polyfill/vr-present-start', this[PRIVATE$15].onPresentationStart);
+    this[PRIVATE$15].onSelectStart = evt => {
+      if (evt.sessionId !== this[PRIVATE$15].id) {
         return;
       }
-      this.dispatchEvent('selectstart', {
-        frame: this[PRIVATE$11].frame,
-        inputSource: evt.inputSource
-      });
+      this[PRIVATE$15].dispatchInputSourceEvent('selectstart',  evt.inputSource);
     };
-    device.addEventListener('@@webxr-polyfill/input-select-start', this[PRIVATE$11].onSelectStart);
-    this[PRIVATE$11].onSelectEnd = evt => {
-      if (evt.sessionId !== this[PRIVATE$11].id) {
+    device.addEventListener('@@webxr-polyfill/input-select-start', this[PRIVATE$15].onSelectStart);
+    this[PRIVATE$15].onSelectEnd = evt => {
+      if (evt.sessionId !== this[PRIVATE$15].id) {
         return;
       }
-      this.dispatchEvent('selectend', {
-        frame: this[PRIVATE$11].frame,
-        inputSource: evt.inputSource
-      });
-      this.dispatchEvent('select',  {
-        frame: this[PRIVATE$11].frame,
-        inputSource: evt.inputSource
-      });
+      this[PRIVATE$15].dispatchInputSourceEvent('selectend',  evt.inputSource);
+      this[PRIVATE$15].dispatchInputSourceEvent('select',  evt.inputSource);
     };
-    device.addEventListener('@@webxr-polyfill/input-select-end', this[PRIVATE$11].onSelectEnd);
+    device.addEventListener('@@webxr-polyfill/input-select-end', this[PRIVATE$15].onSelectEnd);
+    this[PRIVATE$15].dispatchInputSourceEvent = (type, inputSource) => {
+      const frame = new XRFrame(device, this, this[PRIVATE$15].immersive, this[PRIVATE$15].id);
+      const event = new XRInputSourceEvent(type, { frame, inputSource });
+      frame[PRIVATE$9].active = true;
+      this.dispatchEvent(type, event);
+      frame[PRIVATE$9].active = false;
+    };
+    this[PRIVATE$15].startDeviceFrameLoop();
     this.onblur = undefined;
     this.onfocus = undefined;
     this.onresetpose = undefined;
@@ -1830,106 +1990,84 @@ class XRSession$1 extends EventTarget {
     this.onselectstart = undefined;
     this.onselectend = undefined;
   }
-  get renderState() { return this[PRIVATE$11].activeRenderState; }
-  get immersive() { return this[PRIVATE$11].immersive; }
-  get outputContext() { return this[PRIVATE$11].outputContext; }
-  get depthNear() { return this[PRIVATE$11].device.depthNear; }
-  set depthNear(value) { this[PRIVATE$11].device.depthNear = value; }
-  get depthFar() { return this[PRIVATE$11].device.depthFar; }
-  set depthFar(value) { this[PRIVATE$11].device.depthFar = value; }
+  get renderState() { return this[PRIVATE$15].activeRenderState; }
   get environmentBlendMode() {
-    return this[PRIVATE$11].device.environmentBlendMode || 'opaque';
-  }
-  get baseLayer() { return this[PRIVATE$11].baseLayer; }
-  set baseLayer(value) {
-    if (this[PRIVATE$11].ended) {
-      return;
-    }
-    this[PRIVATE$11].baseLayer = value;
-    this[PRIVATE$11].device.onBaseLayerSet(this[PRIVATE$11].id, value);
+    return this[PRIVATE$15].device.environmentBlendMode || 'opaque';
   }
   async requestReferenceSpace(type) {
-    if (this[PRIVATE$11].ended) {
+    if (this[PRIVATE$15].ended) {
       return;
-    }
-    if (type === 'unbounded') {
-      throw new NotSupportedError(`The WebXR polyfill does not support the ${type} reference space`);
     }
     if (!XRReferenceSpaceTypes.includes(type)) {
       throw new TypeError(`XRReferenceSpaceType must be one of ${XRReferenceSpaceTypes}`);
     }
-    let transform = await this[PRIVATE$11].device.requestFrameOfReferenceTransform(type);
+    if (!this[PRIVATE$15].device.doesSessionSupportReferenceSpace(this[PRIVATE$15].id, type)) {
+      throw new DOMException(`The ${type} reference space is not supported by this session.`, 'NotSupportedError');
+    }
+    let transform = await this[PRIVATE$15].device.requestFrameOfReferenceTransform(type);
     if (type === 'bounded-floor') {
       if (!transform) {
-        throw new NotSupportedError(`${type} XRReferenceSpace not supported by this device.`);
+        throw new DOMException(`${type} XRReferenceSpace not supported by this device.`, 'NotSupportedError');
       }
-      let bounds = this[PRIVATE$11].device.requestStageBounds();
+      let bounds = this[PRIVATE$15].device.requestStageBounds();
       if (!bounds) {
-        throw new NotSupportedError(`${type} XRReferenceSpace not supported by this device.`);
+        throw new DOMException(`${type} XRReferenceSpace not supported by this device.`, 'NotSupportedError');
       }
-      throw new NotSupportedError(`The WebXR polyfill does not support the ${type} reference space yet.`);
+      throw new DOMException(`The WebXR polyfill does not support the ${type} reference space yet.`, 'NotSupportedError');
     }
-    return new XRReferenceSpace(this[PRIVATE$11].device, type, transform);
+    return new XRReferenceSpace(this[PRIVATE$15].device, type, transform);
   }
   requestAnimationFrame(callback) {
-    if (this[PRIVATE$11].ended) {
+    if (this[PRIVATE$15].ended) {
       return;
     }
-    if (this[PRIVATE$11].suspended && this[PRIVATE$11].suspendedCallback) {
-      return;
-    }
-    if (this[PRIVATE$11].suspended && !this[PRIVATE$11].suspendedCallback) {
-      this[PRIVATE$11].suspendedCallback = callback;
-    }
-    return this[PRIVATE$11].device.requestAnimationFrame(() => {
-      if (this[PRIVATE$11].pendingRenderState !== null) {
-        this[PRIVATE$11].activeRenderState = this[PRIVATE$11].pendingRenderState;
-        this[PRIVATE$11].pendingRenderState = null;
-        if (this[PRIVATE$11].activeRenderState.baseLayer) {
-          this[PRIVATE$11].device.onBaseLayerSet(
-            this[PRIVATE$11].id,
-            this[PRIVATE$11].activeRenderState.baseLayer);
-        }
-        if (this[PRIVATE$11].activeRenderState.inlineVerticalFieldOfView) {
-          this[PRIVATE$11].device.onInlineVerticalFieldOfViewSet(
-            this[PRIVATE$11].id,
-            this[PRIVATE$11].activeRenderState.inlineVerticalFieldOfView);
-        }
-      }
-      this[PRIVATE$11].device.onFrameStart(this[PRIVATE$11].id);
-      callback(now$1(), this[PRIVATE$11].frame);
-      this[PRIVATE$11].device.onFrameEnd(this[PRIVATE$11].id);
+    const handle = ++this[PRIVATE$15].frameHandle;
+    this[PRIVATE$15].frameCallbacks.push({
+      handle,
+      callback,
+      cancelled: false
     });
+    return handle;
   }
   cancelAnimationFrame(handle) {
-    if (this[PRIVATE$11].ended) {
-      return;
+    let callbacks = this[PRIVATE$15].frameCallbacks;
+    let index = callbacks.findIndex(d => d && d.handle === handle);
+    if (index > -1) {
+      callbacks[index].cancelled = true;
+      callbacks.splice(index, 1);
     }
-    this[PRIVATE$11].device.cancelAnimationFrame(handle);
+    callbacks = this[PRIVATE$15].currentFrameCallbacks;
+    if (callbacks) {
+      index = callbacks.findIndex(d => d && d.handle === handle);
+      if (index > -1) {
+        callbacks[index].cancelled = true;
+      }
+    }
   }
   get inputSources() {
-    return this[PRIVATE$11].device.getInputSources();
+    return this[PRIVATE$15].device.getInputSources();
   }
   async end() {
-    if (this[PRIVATE$11].ended) {
+    if (this[PRIVATE$15].ended) {
       return;
     }
-    if (!this.immersive) {
-      this[PRIVATE$11].ended = true;
-      this[PRIVATE$11].device.removeEventListener('@@webvr-polyfill/vr-present-start',
-                                                 this[PRIVATE$11].onPresentationStart);
-      this[PRIVATE$11].device.removeEventListener('@@webvr-polyfill/vr-present-end',
-                                                 this[PRIVATE$11].onPresentationEnd);
-      this[PRIVATE$11].device.removeEventListener('@@webvr-polyfill/input-select-start',
-                                                 this[PRIVATE$11].onSelectStart);
-      this[PRIVATE$11].device.removeEventListener('@@webvr-polyfill/input-select-end',
-                                                 this[PRIVATE$11].onSelectEnd);
-      this.dispatchEvent('end', { session: this });
+    if (this.immersive) {
+      this[PRIVATE$15].ended = true;
+      this[PRIVATE$15].device.removeEventListener('@@webvr-polyfill/vr-present-start',
+                                                 this[PRIVATE$15].onPresentationStart);
+      this[PRIVATE$15].device.removeEventListener('@@webvr-polyfill/vr-present-end',
+                                                 this[PRIVATE$15].onPresentationEnd);
+      this[PRIVATE$15].device.removeEventListener('@@webvr-polyfill/input-select-start',
+                                                 this[PRIVATE$15].onSelectStart);
+      this[PRIVATE$15].device.removeEventListener('@@webvr-polyfill/input-select-end',
+                                                 this[PRIVATE$15].onSelectEnd);
+      this.dispatchEvent('end', new XRSessionEvent('end', { session: this }));
     }
-    return this[PRIVATE$11].device.endSession(this[PRIVATE$11].id);
+    this[PRIVATE$15].stopDeviceFrameLoop();
+    return this[PRIVATE$15].device.endSession(this[PRIVATE$15].id);
   }
   updateRenderState(newState) {
-    if (this[PRIVATE$11].ended) {
+    if (this[PRIVATE$15].ended) {
       const message = "Can't call updateRenderState on an XRSession " +
                       "that has already ended.";
       throw new Error(message);
@@ -1942,7 +2080,7 @@ class XRSession$1 extends EventTarget {
     const fovSet = (newState.inlineVerticalFieldOfView !== null) &&
                    (newState.inlineVerticalFieldOfView !== undefined);
     if (fovSet) {
-      if (this[PRIVATE$11].immersive) {
+      if (this[PRIVATE$15].immersive) {
         const message = "inlineVerticalFieldOfView must not be set for an " +
                         "XRRenderState passed to updateRenderState for an " +
                         "immersive session.";
@@ -1952,57 +2090,86 @@ class XRSession$1 extends EventTarget {
           3.13, Math.max(0.01, newState.inlineVerticalFieldOfView));
       }
     }
-    if (this[PRIVATE$11].pendingRenderState === null) {
-      this[PRIVATE$11].pendingRenderState = Object.assign(
-        {}, this[PRIVATE$11].activeRenderState, newState);
+    if (this[PRIVATE$15].pendingRenderState === null) {
+      const activeRenderState = this[PRIVATE$15].activeRenderState;
+      this[PRIVATE$15].pendingRenderState = {
+        depthNear: activeRenderState.depthNear,
+        depthFar: activeRenderState.depthFar,
+        inlineVerticalFieldOfView: activeRenderState.inlineVerticalFieldOfView,
+        baseLayer: activeRenderState.baseLayer
+      };
+    }
+    Object.assign(this[PRIVATE$15].pendingRenderState, newState);
+  }
+  _checkInputSourcesChange() {
+    const added = [];
+    const removed = [];
+    const newInputSources = this.inputSources;
+    const oldInputSources = this[PRIVATE$15].currentInputSources;
+    for (const newInputSource of newInputSources) {
+      if (!oldInputSources.includes(newInputSource)) {
+        added.push(newInputSource);
+      }
+    }
+    for (const oldInputSource of oldInputSources) {
+      if (!newInputSources.includes(oldInputSource)) {
+        removed.push(oldInputSource);
+      }
+    }
+    if (added.length > 0 || removed.length > 0) {
+      this.dispatchEvent('inputsourceschange', new XRInputSourcesChangeEvent('inputsourceschange', {
+        session: this,
+        added: added,
+        removed: removed
+      }));
+    }
+    this[PRIVATE$15].currentInputSources.length = 0;
+    for (const newInputSource of newInputSources) {
+      this[PRIVATE$15].currentInputSources.push(newInputSource);
     }
   }
 }
 
-const PRIVATE$12 = Symbol('@@webxr-polyfill/XRInputSource');
+const PRIVATE$16 = Symbol('@@webxr-polyfill/XRInputSource');
 class XRInputSource {
   constructor(impl) {
-    this[PRIVATE$12] = {
+    this[PRIVATE$16] = {
       impl,
       gripSpace: new XRSpace("grip", this),
       targetRaySpace: new XRSpace("target-ray", this)
     };
   }
-  get handedness() { return this[PRIVATE$12].impl.handedness; }
-  get targetRayMode() { return this[PRIVATE$12].impl.targetRayMode; }
+  get handedness() { return this[PRIVATE$16].impl.handedness; }
+  get targetRayMode() { return this[PRIVATE$16].impl.targetRayMode; }
   get gripSpace() {
-    let mode = this[PRIVATE$12].impl.targetRayMode;
+    let mode = this[PRIVATE$16].impl.targetRayMode;
     if (mode === "gaze" || mode === "screen") {
       return null;
     }
-    return this[PRIVATE$12].gripSpace;
+    return this[PRIVATE$16].gripSpace;
   }
-  get targetRaySpace() { return this[PRIVATE$12].targetRaySpace; }
-  get profiles() { return this[PRIVATE$12].impl.profiles; }
-  get gamepad() { return this[PRIVATE$12].impl.gamepad; }
+  get targetRaySpace() { return this[PRIVATE$16].targetRaySpace; }
+  get profiles() { return this[PRIVATE$16].impl.profiles; }
+  get gamepad() { return this[PRIVATE$16].impl.gamepad; }
 }
 
-const PRIVATE$13 = Symbol('@@webxr-polyfill/XRRenderState');
-const XRRenderStateInit = Object.freeze({
-  depthNear: 0.1,
-  depthFar: 1000.0,
-  inlineVerticalFieldOfView: null,
-  baseLayer: null
-});
-class XRRenderState {
-  constructor(stateInit = {}) {
-    const config = Object.assign({}, XRRenderStateInit, stateInit);
-    this[PRIVATE$13] = { config };
+const PRIVATE$17 = Symbol('@@webxr-polyfill/XRReferenceSpaceEvent');
+class XRReferenceSpaceEvent extends Event {
+  constructor(type, eventInitDict) {
+    super(type, eventInitDict);
+    this[PRIVATE$17] = {
+      referenceSpace: eventInitDict.referenceSpace,
+      transform: eventInitDict.transform || null
+    };
   }
-  get depthNear() { return this[PRIVATE$13].depthNear; }
-  get depthFar() { return this[PRIVATE$13].depthFar; }
-  get inlineVerticalFieldOfView() { return this[PRIVATE$13].inlineVerticalFieldOfView; }
-  get baseLayer() { return this[PRIVATE$13].baseLayer; }
+  get referenceSpace() { return this[PRIVATE$17].referenceSpace; }
+  get transform() { return this[PRIVATE$17].transform; }
 }
 
 var API = {
   XR: XR$1,
   XRSession: XRSession$1,
+  XRSessionEvent,
   XRFrame,
   XRView,
   XRViewport,
@@ -2010,7 +2177,10 @@ var API = {
   XRWebGLLayer,
   XRSpace,
   XRReferenceSpace,
+  XRReferenceSpaceEvent,
   XRInputSource,
+  XRInputSourceEvent,
+  XRInputSourcesChangeEvent,
   XRRenderState,
   XRRigidTransform: XRRigidTransform$1,
   XRPose: XRPose$1,
@@ -2043,7 +2213,11 @@ const polyfillGetContext = (Canvas) => {
 const isImageBitmapSupported = global =>
   !!(global.ImageBitmapRenderingContext &&
      global.createImageBitmap);
-
+const isMobile = global => {
+  var check = false;
+  (function(a){if(/(android|bb\d+|meego).+mobile|avantgo|bada\/|blackberry|blazer|compal|elaine|fennec|hiptop|iemobile|ip(hone|od)|iris|kindle|lge |maemo|midp|mmp|mobile.+firefox|netfront|opera m(ob|in)i|palm( os)?|phone|p(ixi|re)\/|plucker|pocket|psp|series(4|6)0|symbian|treo|up\.(browser|link)|vodafone|wap|windows ce|xda|xiino/i.test(a)||/1207|6310|6590|3gso|4thp|50[1-6]i|770s|802s|a wa|abac|ac(er|oo|s\-)|ai(ko|rn)|al(av|ca|co)|amoi|an(ex|ny|yw)|aptu|ar(ch|go)|as(te|us)|attw|au(di|\-m|r |s )|avan|be(ck|ll|nq)|bi(lb|rd)|bl(ac|az)|br(e|v)w|bumb|bw\-(n|u)|c55\/|capi|ccwa|cdm\-|cell|chtm|cldc|cmd\-|co(mp|nd)|craw|da(it|ll|ng)|dbte|dc\-s|devi|dica|dmob|do(c|p)o|ds(12|\-d)|el(49|ai)|em(l2|ul)|er(ic|k0)|esl8|ez([4-7]0|os|wa|ze)|fetc|fly(\-|_)|g1 u|g560|gene|gf\-5|g\-mo|go(\.w|od)|gr(ad|un)|haie|hcit|hd\-(m|p|t)|hei\-|hi(pt|ta)|hp( i|ip)|hs\-c|ht(c(\-| |_|a|g|p|s|t)|tp)|hu(aw|tc)|i\-(20|go|ma)|i230|iac( |\-|\/)|ibro|idea|ig01|ikom|im1k|inno|ipaq|iris|ja(t|v)a|jbro|jemu|jigs|kddi|keji|kgt( |\/)|klon|kpt |kwc\-|kyo(c|k)|le(no|xi)|lg( g|\/(k|l|u)|50|54|\-[a-w])|libw|lynx|m1\-w|m3ga|m50\/|ma(te|ui|xo)|mc(01|21|ca)|m\-cr|me(rc|ri)|mi(o8|oa|ts)|mmef|mo(01|02|bi|de|do|t(\-| |o|v)|zz)|mt(50|p1|v )|mwbp|mywa|n10[0-2]|n20[2-3]|n30(0|2)|n50(0|2|5)|n7(0(0|1)|10)|ne((c|m)\-|on|tf|wf|wg|wt)|nok(6|i)|nzph|o2im|op(ti|wv)|oran|owg1|p800|pan(a|d|t)|pdxg|pg(13|\-([1-8]|c))|phil|pire|pl(ay|uc)|pn\-2|po(ck|rt|se)|prox|psio|pt\-g|qa\-a|qc(07|12|21|32|60|\-[2-7]|i\-)|qtek|r380|r600|raks|rim9|ro(ve|zo)|s55\/|sa(ge|ma|mm|ms|ny|va)|sc(01|h\-|oo|p\-)|sdk\/|se(c(\-|0|1)|47|mc|nd|ri)|sgh\-|shar|sie(\-|m)|sk\-0|sl(45|id)|sm(al|ar|b3|it|t5)|so(ft|ny)|sp(01|h\-|v\-|v )|sy(01|mb)|t2(18|50)|t6(00|10|18)|ta(gt|lk)|tcl\-|tdg\-|tel(i|m)|tim\-|t\-mo|to(pl|sh)|ts(70|m\-|m3|m5)|tx\-9|up(\.b|g1|si)|utst|v400|v750|veri|vi(rg|te)|vk(40|5[0-3]|\-v)|vm40|voda|vulc|vx(52|53|60|61|70|80|81|83|85|98)|w3c(\-| )|webc|whit|wi(g |nc|nw)|wmlb|wonu|x700|yas\-|your|zeto|zte\-/i.test(a.substr(0,4)))check = true;})(global.navigator.userAgent||global.navigator.vendor||global.opera);
+  return check;
+};
 const applyCanvasStylesForMinimalRendering = canvas => {
   canvas.style.display = 'block';
   canvas.style.position = 'absolute';
@@ -3726,8 +3900,8 @@ function CardboardViewer(params) {
 }
 DeviceInfo.Viewers = Viewers;
 var format = 1;
-var last_updated = "2018-12-10T17:01:42Z";
-var devices = [{"type":"android","rules":[{"mdmh":"asus/*/Nexus 7/*"},{"ua":"Nexus 7"}],"dpi":[320.8,323],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"asus/*/ASUS_Z00AD/*"},{"ua":"ASUS_Z00AD"}],"dpi":[403,404.6],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Google/*/Pixel 2 XL/*"},{"ua":"Pixel 2 XL"}],"dpi":537.9,"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Google/*/Pixel 3 XL/*"},{"ua":"Pixel 3 XL"}],"dpi":[558.5,553.8],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Google/*/Pixel XL/*"},{"ua":"Pixel XL"}],"dpi":[537.9,533],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Google/*/Pixel 3/*"},{"ua":"Pixel 3"}],"dpi":442.4,"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Google/*/Pixel 2/*"},{"ua":"Pixel 2"}],"dpi":441,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"Google/*/Pixel/*"},{"ua":"Pixel"}],"dpi":[432.6,436.7],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"HTC/*/HTC6435LVW/*"},{"ua":"HTC6435LVW"}],"dpi":[449.7,443.3],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"HTC/*/HTC One XL/*"},{"ua":"HTC One XL"}],"dpi":[315.3,314.6],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"htc/*/Nexus 9/*"},{"ua":"Nexus 9"}],"dpi":289,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"HTC/*/HTC One M9/*"},{"ua":"HTC One M9"}],"dpi":[442.5,443.3],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"HTC/*/HTC One_M8/*"},{"ua":"HTC One_M8"}],"dpi":[449.7,447.4],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"HTC/*/HTC One/*"},{"ua":"HTC One"}],"dpi":472.8,"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Huawei/*/Nexus 6P/*"},{"ua":"Nexus 6P"}],"dpi":[515.1,518],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Huawei/*/BLN-L24/*"},{"ua":"HONORBLN-L24"}],"dpi":480,"bw":4,"ac":500},{"type":"android","rules":[{"mdmh":"Huawei/*/BKL-L09/*"},{"ua":"BKL-L09"}],"dpi":403,"bw":3.47,"ac":500},{"type":"android","rules":[{"mdmh":"LENOVO/*/Lenovo PB2-690Y/*"},{"ua":"Lenovo PB2-690Y"}],"dpi":[457.2,454.713],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"LGE/*/Nexus 5X/*"},{"ua":"Nexus 5X"}],"dpi":[422,419.9],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"LGE/*/LGMS345/*"},{"ua":"LGMS345"}],"dpi":[221.7,219.1],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"LGE/*/LG-D800/*"},{"ua":"LG-D800"}],"dpi":[422,424.1],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"LGE/*/LG-D850/*"},{"ua":"LG-D850"}],"dpi":[537.9,541.9],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"LGE/*/VS985 4G/*"},{"ua":"VS985 4G"}],"dpi":[537.9,535.6],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"LGE/*/Nexus 5/*"},{"ua":"Nexus 5 B"}],"dpi":[442.4,444.8],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"LGE/*/Nexus 4/*"},{"ua":"Nexus 4"}],"dpi":[319.8,318.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"LGE/*/LG-P769/*"},{"ua":"LG-P769"}],"dpi":[240.6,247.5],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"LGE/*/LGMS323/*"},{"ua":"LGMS323"}],"dpi":[206.6,204.6],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"LGE/*/LGLS996/*"},{"ua":"LGLS996"}],"dpi":[403.4,401.5],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Micromax/*/4560MMX/*"},{"ua":"4560MMX"}],"dpi":[240,219.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Micromax/*/A250/*"},{"ua":"Micromax A250"}],"dpi":[480,446.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Micromax/*/Micromax AQ4501/*"},{"ua":"Micromax AQ4501"}],"dpi":240,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"motorola/*/G5/*"},{"ua":"Moto G (5) Plus"}],"dpi":[403.4,403],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"motorola/*/DROID RAZR/*"},{"ua":"DROID RAZR"}],"dpi":[368.1,256.7],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"motorola/*/XT830C/*"},{"ua":"XT830C"}],"dpi":[254,255.9],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"motorola/*/XT1021/*"},{"ua":"XT1021"}],"dpi":[254,256.7],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"motorola/*/XT1023/*"},{"ua":"XT1023"}],"dpi":[254,256.7],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"motorola/*/XT1028/*"},{"ua":"XT1028"}],"dpi":[326.6,327.6],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"motorola/*/XT1034/*"},{"ua":"XT1034"}],"dpi":[326.6,328.4],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"motorola/*/XT1053/*"},{"ua":"XT1053"}],"dpi":[315.3,316.1],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"motorola/*/XT1562/*"},{"ua":"XT1562"}],"dpi":[403.4,402.7],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"motorola/*/Nexus 6/*"},{"ua":"Nexus 6 B"}],"dpi":[494.3,489.7],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"motorola/*/XT1063/*"},{"ua":"XT1063"}],"dpi":[295,296.6],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"motorola/*/XT1064/*"},{"ua":"XT1064"}],"dpi":[295,295.6],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"motorola/*/XT1092/*"},{"ua":"XT1092"}],"dpi":[422,424.1],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"motorola/*/XT1095/*"},{"ua":"XT1095"}],"dpi":[422,423.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"motorola/*/G4/*"},{"ua":"Moto G (4)"}],"dpi":401,"bw":4,"ac":1000},{"type":"android","rules":[{"mdmh":"OnePlus/*/A0001/*"},{"ua":"A0001"}],"dpi":[403.4,401],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"OnePlus/*/ONE E1005/*"},{"ua":"ONE E1005"}],"dpi":[442.4,441.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"OnePlus/*/ONE A2005/*"},{"ua":"ONE A2005"}],"dpi":[391.9,405.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"OnePlus/*/ONEPLUS A5000/*"},{"ua":"ONEPLUS A5000 "}],"dpi":[403.411,399.737],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"OnePlus/*/ONE A5010/*"},{"ua":"ONEPLUS A5010"}],"dpi":[403,400],"bw":2,"ac":1000},{"type":"android","rules":[{"mdmh":"OPPO/*/X909/*"},{"ua":"X909"}],"dpi":[442.4,444.1],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/GT-I9082/*"},{"ua":"GT-I9082"}],"dpi":[184.7,185.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G360P/*"},{"ua":"SM-G360P"}],"dpi":[196.7,205.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/Nexus S/*"},{"ua":"Nexus S"}],"dpi":[234.5,229.8],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/GT-I9300/*"},{"ua":"GT-I9300"}],"dpi":[304.8,303.9],"bw":5,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-T230NU/*"},{"ua":"SM-T230NU"}],"dpi":216,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SGH-T399/*"},{"ua":"SGH-T399"}],"dpi":[217.7,231.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SGH-M919/*"},{"ua":"SGH-M919"}],"dpi":[440.8,437.7],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-N9005/*"},{"ua":"SM-N9005"}],"dpi":[386.4,387],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SAMSUNG-SM-N900A/*"},{"ua":"SAMSUNG-SM-N900A"}],"dpi":[386.4,387.7],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/GT-I9500/*"},{"ua":"GT-I9500"}],"dpi":[442.5,443.3],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/GT-I9505/*"},{"ua":"GT-I9505"}],"dpi":439.4,"bw":4,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G900F/*"},{"ua":"SM-G900F"}],"dpi":[415.6,431.6],"bw":5,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G900M/*"},{"ua":"SM-G900M"}],"dpi":[415.6,431.6],"bw":5,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G800F/*"},{"ua":"SM-G800F"}],"dpi":326.8,"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G906S/*"},{"ua":"SM-G906S"}],"dpi":[562.7,572.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/GT-I9300/*"},{"ua":"GT-I9300"}],"dpi":[306.7,304.8],"bw":5,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-T535/*"},{"ua":"SM-T535"}],"dpi":[142.6,136.4],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-N920C/*"},{"ua":"SM-N920C"}],"dpi":[515.1,518.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-N920P/*"},{"ua":"SM-N920P"}],"dpi":[386.3655,390.144],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-N920W8/*"},{"ua":"SM-N920W8"}],"dpi":[515.1,518.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/GT-I9300I/*"},{"ua":"GT-I9300I"}],"dpi":[304.8,305.8],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/GT-I9195/*"},{"ua":"GT-I9195"}],"dpi":[249.4,256.7],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SPH-L520/*"},{"ua":"SPH-L520"}],"dpi":[249.4,255.9],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SAMSUNG-SGH-I717/*"},{"ua":"SAMSUNG-SGH-I717"}],"dpi":285.8,"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SPH-D710/*"},{"ua":"SPH-D710"}],"dpi":[217.7,204.2],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/GT-N7100/*"},{"ua":"GT-N7100"}],"dpi":265.1,"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SCH-I605/*"},{"ua":"SCH-I605"}],"dpi":265.1,"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/Galaxy Nexus/*"},{"ua":"Galaxy Nexus"}],"dpi":[315.3,314.2],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-N910H/*"},{"ua":"SM-N910H"}],"dpi":[515.1,518],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-N910C/*"},{"ua":"SM-N910C"}],"dpi":[515.2,520.2],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G130M/*"},{"ua":"SM-G130M"}],"dpi":[165.9,164.8],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G928I/*"},{"ua":"SM-G928I"}],"dpi":[515.1,518.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G920F/*"},{"ua":"SM-G920F"}],"dpi":580.6,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G920P/*"},{"ua":"SM-G920P"}],"dpi":[522.5,577],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G925F/*"},{"ua":"SM-G925F"}],"dpi":580.6,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G925V/*"},{"ua":"SM-G925V"}],"dpi":[522.5,576.6],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G930F/*"},{"ua":"SM-G930F"}],"dpi":576.6,"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G935F/*"},{"ua":"SM-G935F"}],"dpi":533,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G950F/*"},{"ua":"SM-G950F"}],"dpi":[562.707,565.293],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G955U/*"},{"ua":"SM-G955U"}],"dpi":[522.514,525.762],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G955F/*"},{"ua":"SM-G955F"}],"dpi":[522.514,525.762],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"Sony/*/C6903/*"},{"ua":"C6903"}],"dpi":[442.5,443.3],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"Sony/*/D6653/*"},{"ua":"D6653"}],"dpi":[428.6,427.6],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Sony/*/E6653/*"},{"ua":"E6653"}],"dpi":[428.6,425.7],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Sony/*/E6853/*"},{"ua":"E6853"}],"dpi":[403.4,401.9],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Sony/*/SGP321/*"},{"ua":"SGP321"}],"dpi":[224.7,224.1],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"TCT/*/ALCATEL ONE TOUCH Fierce/*"},{"ua":"ALCATEL ONE TOUCH Fierce"}],"dpi":[240,247.5],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"THL/*/thl 5000/*"},{"ua":"thl 5000"}],"dpi":[480,443.3],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Fly/*/IQ4412/*"},{"ua":"IQ4412"}],"dpi":307.9,"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"ZTE/*/ZTE Blade L2/*"},{"ua":"ZTE Blade L2"}],"dpi":240,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"BENEVE/*/VR518/*"},{"ua":"VR518"}],"dpi":480,"bw":3,"ac":500},{"type":"ios","rules":[{"res":[640,960]}],"dpi":[325.1,328.4],"bw":4,"ac":1000},{"type":"ios","rules":[{"res":[640,1136]}],"dpi":[317.1,320.2],"bw":3,"ac":1000},{"type":"ios","rules":[{"res":[750,1334]}],"dpi":326.4,"bw":4,"ac":1000},{"type":"ios","rules":[{"res":[1242,2208]}],"dpi":[453.6,458.4],"bw":4,"ac":1000},{"type":"ios","rules":[{"res":[1125,2001]}],"dpi":[410.9,415.4],"bw":4,"ac":1000},{"type":"ios","rules":[{"res":[1125,2436]}],"dpi":458,"bw":4,"ac":1000}];
+var last_updated = "2019-11-09T17:36:14Z";
+var devices = [{"type":"android","rules":[{"mdmh":"asus/*/Nexus 7/*"},{"ua":"Nexus 7"}],"dpi":[320.8,323],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"asus/*/ASUS_X00PD/*"},{"ua":"ASUS_X00PD"}],"dpi":245,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"asus/*/ASUS_X008D/*"},{"ua":"ASUS_X008D"}],"dpi":282,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"asus/*/ASUS_Z00AD/*"},{"ua":"ASUS_Z00AD"}],"dpi":[403,404.6],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Google/*/Pixel 2 XL/*"},{"ua":"Pixel 2 XL"}],"dpi":537.9,"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Google/*/Pixel 3 XL/*"},{"ua":"Pixel 3 XL"}],"dpi":[558.5,553.8],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Google/*/Pixel XL/*"},{"ua":"Pixel XL"}],"dpi":[537.9,533],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Google/*/Pixel 3/*"},{"ua":"Pixel 3"}],"dpi":442.4,"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Google/*/Pixel 2/*"},{"ua":"Pixel 2"}],"dpi":441,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"Google/*/Pixel/*"},{"ua":"Pixel"}],"dpi":[432.6,436.7],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"HTC/*/HTC6435LVW/*"},{"ua":"HTC6435LVW"}],"dpi":[449.7,443.3],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"HTC/*/HTC One XL/*"},{"ua":"HTC One XL"}],"dpi":[315.3,314.6],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"htc/*/Nexus 9/*"},{"ua":"Nexus 9"}],"dpi":289,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"HTC/*/HTC One M9/*"},{"ua":"HTC One M9"}],"dpi":[442.5,443.3],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"HTC/*/HTC One_M8/*"},{"ua":"HTC One_M8"}],"dpi":[449.7,447.4],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"HTC/*/HTC One/*"},{"ua":"HTC One"}],"dpi":472.8,"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Huawei/*/Nexus 6P/*"},{"ua":"Nexus 6P"}],"dpi":[515.1,518],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Huawei/*/BLN-L24/*"},{"ua":"HONORBLN-L24"}],"dpi":480,"bw":4,"ac":500},{"type":"android","rules":[{"mdmh":"Huawei/*/BKL-L09/*"},{"ua":"BKL-L09"}],"dpi":403,"bw":3.47,"ac":500},{"type":"android","rules":[{"mdmh":"LENOVO/*/Lenovo PB2-690Y/*"},{"ua":"Lenovo PB2-690Y"}],"dpi":[457.2,454.713],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"LGE/*/Nexus 5X/*"},{"ua":"Nexus 5X"}],"dpi":[422,419.9],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"LGE/*/LGMS345/*"},{"ua":"LGMS345"}],"dpi":[221.7,219.1],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"LGE/*/LG-D800/*"},{"ua":"LG-D800"}],"dpi":[422,424.1],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"LGE/*/LG-D850/*"},{"ua":"LG-D850"}],"dpi":[537.9,541.9],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"LGE/*/VS985 4G/*"},{"ua":"VS985 4G"}],"dpi":[537.9,535.6],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"LGE/*/Nexus 5/*"},{"ua":"Nexus 5 B"}],"dpi":[442.4,444.8],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"LGE/*/Nexus 4/*"},{"ua":"Nexus 4"}],"dpi":[319.8,318.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"LGE/*/LG-P769/*"},{"ua":"LG-P769"}],"dpi":[240.6,247.5],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"LGE/*/LGMS323/*"},{"ua":"LGMS323"}],"dpi":[206.6,204.6],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"LGE/*/LGLS996/*"},{"ua":"LGLS996"}],"dpi":[403.4,401.5],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Micromax/*/4560MMX/*"},{"ua":"4560MMX"}],"dpi":[240,219.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Micromax/*/A250/*"},{"ua":"Micromax A250"}],"dpi":[480,446.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Micromax/*/Micromax AQ4501/*"},{"ua":"Micromax AQ4501"}],"dpi":240,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"motorola/*/G5/*"},{"ua":"Moto G (5) Plus"}],"dpi":[403.4,403],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"motorola/*/DROID RAZR/*"},{"ua":"DROID RAZR"}],"dpi":[368.1,256.7],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"motorola/*/XT830C/*"},{"ua":"XT830C"}],"dpi":[254,255.9],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"motorola/*/XT1021/*"},{"ua":"XT1021"}],"dpi":[254,256.7],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"motorola/*/XT1023/*"},{"ua":"XT1023"}],"dpi":[254,256.7],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"motorola/*/XT1028/*"},{"ua":"XT1028"}],"dpi":[326.6,327.6],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"motorola/*/XT1034/*"},{"ua":"XT1034"}],"dpi":[326.6,328.4],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"motorola/*/XT1053/*"},{"ua":"XT1053"}],"dpi":[315.3,316.1],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"motorola/*/XT1562/*"},{"ua":"XT1562"}],"dpi":[403.4,402.7],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"motorola/*/Nexus 6/*"},{"ua":"Nexus 6 B"}],"dpi":[494.3,489.7],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"motorola/*/XT1063/*"},{"ua":"XT1063"}],"dpi":[295,296.6],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"motorola/*/XT1064/*"},{"ua":"XT1064"}],"dpi":[295,295.6],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"motorola/*/XT1092/*"},{"ua":"XT1092"}],"dpi":[422,424.1],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"motorola/*/XT1095/*"},{"ua":"XT1095"}],"dpi":[422,423.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"motorola/*/G4/*"},{"ua":"Moto G (4)"}],"dpi":401,"bw":4,"ac":1000},{"type":"android","rules":[{"mdmh":"OnePlus/*/A0001/*"},{"ua":"A0001"}],"dpi":[403.4,401],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"OnePlus/*/ONE E1001/*"},{"ua":"ONE E1001"}],"dpi":[442.4,441.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"OnePlus/*/ONE E1003/*"},{"ua":"ONE E1003"}],"dpi":[442.4,441.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"OnePlus/*/ONE E1005/*"},{"ua":"ONE E1005"}],"dpi":[442.4,441.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"OnePlus/*/ONE A2001/*"},{"ua":"ONE A2001"}],"dpi":[391.9,405.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"OnePlus/*/ONE A2003/*"},{"ua":"ONE A2003"}],"dpi":[391.9,405.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"OnePlus/*/ONE A2005/*"},{"ua":"ONE A2005"}],"dpi":[391.9,405.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"OnePlus/*/ONEPLUS A3000/*"},{"ua":"ONEPLUS A3000"}],"dpi":401,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"OnePlus/*/ONEPLUS A3003/*"},{"ua":"ONEPLUS A3003"}],"dpi":401,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"OnePlus/*/ONEPLUS A3010/*"},{"ua":"ONEPLUS A3010"}],"dpi":401,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"OnePlus/*/ONEPLUS A5000/*"},{"ua":"ONEPLUS A5000 "}],"dpi":[403.411,399.737],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"OnePlus/*/ONE A5010/*"},{"ua":"ONEPLUS A5010"}],"dpi":[403,400],"bw":2,"ac":1000},{"type":"android","rules":[{"mdmh":"OnePlus/*/ONEPLUS A6000/*"},{"ua":"ONEPLUS A6000"}],"dpi":401,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"OnePlus/*/ONEPLUS A6003/*"},{"ua":"ONEPLUS A6003"}],"dpi":401,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"OnePlus/*/ONEPLUS A6010/*"},{"ua":"ONEPLUS A6010"}],"dpi":401,"bw":2,"ac":500},{"type":"android","rules":[{"mdmh":"OnePlus/*/ONEPLUS A6013/*"},{"ua":"ONEPLUS A6013"}],"dpi":401,"bw":2,"ac":500},{"type":"android","rules":[{"mdmh":"OPPO/*/X909/*"},{"ua":"X909"}],"dpi":[442.4,444.1],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/GT-I9082/*"},{"ua":"GT-I9082"}],"dpi":[184.7,185.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G360P/*"},{"ua":"SM-G360P"}],"dpi":[196.7,205.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/Nexus S/*"},{"ua":"Nexus S"}],"dpi":[234.5,229.8],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/GT-I9300/*"},{"ua":"GT-I9300"}],"dpi":[304.8,303.9],"bw":5,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-T230NU/*"},{"ua":"SM-T230NU"}],"dpi":216,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SGH-T399/*"},{"ua":"SGH-T399"}],"dpi":[217.7,231.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SGH-M919/*"},{"ua":"SGH-M919"}],"dpi":[440.8,437.7],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-N9005/*"},{"ua":"SM-N9005"}],"dpi":[386.4,387],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SAMSUNG-SM-N900A/*"},{"ua":"SAMSUNG-SM-N900A"}],"dpi":[386.4,387.7],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/GT-I9500/*"},{"ua":"GT-I9500"}],"dpi":[442.5,443.3],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/GT-I9505/*"},{"ua":"GT-I9505"}],"dpi":439.4,"bw":4,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G900F/*"},{"ua":"SM-G900F"}],"dpi":[415.6,431.6],"bw":5,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G900M/*"},{"ua":"SM-G900M"}],"dpi":[415.6,431.6],"bw":5,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G800F/*"},{"ua":"SM-G800F"}],"dpi":326.8,"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G906S/*"},{"ua":"SM-G906S"}],"dpi":[562.7,572.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/GT-I9300/*"},{"ua":"GT-I9300"}],"dpi":[306.7,304.8],"bw":5,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-T535/*"},{"ua":"SM-T535"}],"dpi":[142.6,136.4],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-N920C/*"},{"ua":"SM-N920C"}],"dpi":[515.1,518.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-N920P/*"},{"ua":"SM-N920P"}],"dpi":[386.3655,390.144],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-N920W8/*"},{"ua":"SM-N920W8"}],"dpi":[515.1,518.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/GT-I9300I/*"},{"ua":"GT-I9300I"}],"dpi":[304.8,305.8],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/GT-I9195/*"},{"ua":"GT-I9195"}],"dpi":[249.4,256.7],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SPH-L520/*"},{"ua":"SPH-L520"}],"dpi":[249.4,255.9],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SAMSUNG-SGH-I717/*"},{"ua":"SAMSUNG-SGH-I717"}],"dpi":285.8,"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SPH-D710/*"},{"ua":"SPH-D710"}],"dpi":[217.7,204.2],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/GT-N7100/*"},{"ua":"GT-N7100"}],"dpi":265.1,"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SCH-I605/*"},{"ua":"SCH-I605"}],"dpi":265.1,"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/Galaxy Nexus/*"},{"ua":"Galaxy Nexus"}],"dpi":[315.3,314.2],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-N910H/*"},{"ua":"SM-N910H"}],"dpi":[515.1,518],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-N910C/*"},{"ua":"SM-N910C"}],"dpi":[515.2,520.2],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G130M/*"},{"ua":"SM-G130M"}],"dpi":[165.9,164.8],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G928I/*"},{"ua":"SM-G928I"}],"dpi":[515.1,518.4],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G920F/*"},{"ua":"SM-G920F"}],"dpi":580.6,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G920P/*"},{"ua":"SM-G920P"}],"dpi":[522.5,577],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G925F/*"},{"ua":"SM-G925F"}],"dpi":580.6,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G925V/*"},{"ua":"SM-G925V"}],"dpi":[522.5,576.6],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G930F/*"},{"ua":"SM-G930F"}],"dpi":576.6,"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G935F/*"},{"ua":"SM-G935F"}],"dpi":533,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G950F/*"},{"ua":"SM-G950F"}],"dpi":[562.707,565.293],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G955U/*"},{"ua":"SM-G955U"}],"dpi":[522.514,525.762],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G955F/*"},{"ua":"SM-G955F"}],"dpi":[522.514,525.762],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G960F/*"},{"ua":"SM-G960F"}],"dpi":[569.575,571.5],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G9600/*"},{"ua":"SM-G9600"}],"dpi":[569.575,571.5],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G960T/*"},{"ua":"SM-G960T"}],"dpi":[569.575,571.5],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G960N/*"},{"ua":"SM-G960N"}],"dpi":[569.575,571.5],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G960U/*"},{"ua":"SM-G960U"}],"dpi":[569.575,571.5],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G9608/*"},{"ua":"SM-G9608"}],"dpi":[569.575,571.5],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G960FD/*"},{"ua":"SM-G960FD"}],"dpi":[569.575,571.5],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G960W/*"},{"ua":"SM-G960W"}],"dpi":[569.575,571.5],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G965F/*"},{"ua":"SM-G965F"}],"dpi":529,"bw":2,"ac":1000},{"type":"android","rules":[{"mdmh":"Sony/*/C6903/*"},{"ua":"C6903"}],"dpi":[442.5,443.3],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"Sony/*/D6653/*"},{"ua":"D6653"}],"dpi":[428.6,427.6],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Sony/*/E6653/*"},{"ua":"E6653"}],"dpi":[428.6,425.7],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Sony/*/E6853/*"},{"ua":"E6853"}],"dpi":[403.4,401.9],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Sony/*/SGP321/*"},{"ua":"SGP321"}],"dpi":[224.7,224.1],"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"TCT/*/ALCATEL ONE TOUCH Fierce/*"},{"ua":"ALCATEL ONE TOUCH Fierce"}],"dpi":[240,247.5],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"THL/*/thl 5000/*"},{"ua":"thl 5000"}],"dpi":[480,443.3],"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"Fly/*/IQ4412/*"},{"ua":"IQ4412"}],"dpi":307.9,"bw":3,"ac":1000},{"type":"android","rules":[{"mdmh":"ZTE/*/ZTE Blade L2/*"},{"ua":"ZTE Blade L2"}],"dpi":240,"bw":3,"ac":500},{"type":"android","rules":[{"mdmh":"BENEVE/*/VR518/*"},{"ua":"VR518"}],"dpi":480,"bw":3,"ac":500},{"type":"ios","rules":[{"res":[640,960]}],"dpi":[325.1,328.4],"bw":4,"ac":1000},{"type":"ios","rules":[{"res":[640,1136]}],"dpi":[317.1,320.2],"bw":3,"ac":1000},{"type":"ios","rules":[{"res":[750,1334]}],"dpi":326.4,"bw":4,"ac":1000},{"type":"ios","rules":[{"res":[1242,2208]}],"dpi":[453.6,458.4],"bw":4,"ac":1000},{"type":"ios","rules":[{"res":[1125,2001]}],"dpi":[410.9,415.4],"bw":4,"ac":1000},{"type":"ios","rules":[{"res":[1125,2436]}],"dpi":458,"bw":4,"ac":1000},{"type":"android","rules":[{"mdmh":"Huawei/*/EML-L29/*"},{"ua":"EML-L29"}],"dpi":428,"bw":3.45,"ac":500},{"type":"android","rules":[{"mdmh":"Nokia/*/Nokia 7.1/*"},{"ua":"Nokia 7.1"}],"dpi":[432,431.9],"bw":3,"ac":500},{"type":"ios","rules":[{"res":[1242,2688]}],"dpi":458,"bw":4,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G570M/*"},{"ua":"SM-G570M"}],"dpi":320,"bw":3.684,"ac":1000},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G970F/*"},{"ua":"SM-G970F"}],"dpi":438,"bw":2.281,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G973F/*"},{"ua":"SM-G973F"}],"dpi":550,"bw":2.002,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G975F/*"},{"ua":"SM-G975F"}],"dpi":522,"bw":2.054,"ac":500},{"type":"android","rules":[{"mdmh":"samsung/*/SM-G977F/*"},{"ua":"SM-G977F"}],"dpi":505,"bw":2.334,"ac":500},{"type":"ios","rules":[{"res":[828,1792]}],"dpi":326,"bw":5,"ac":500}];
 var DPDB_CACHE = {
 	format: format,
 	last_updated: last_updated,
@@ -5155,7 +5329,10 @@ CardboardVRDisplay.prototype.submitFrame = function (pose) {
     this.updateBounds_();
     this.distorter_.submitFrame();
   } else if (this.cardboardUI_ && this.layer_) {
-    var canvas = this.layer_.source.getContext('webgl').canvas;
+    var gl = this.layer_.source.getContext('webgl');
+    if (!gl) gl = this.layer_.source.getContext('experimental-webgl');
+    if (!gl) gl = this.layer_.source.getContext('webgl2');
+    var canvas = gl.canvas;
     if (canvas.width != this.lastWidth || canvas.height != this.lastHeight) {
       this.cardboardUI_.onResize();
     }
@@ -5174,6 +5351,8 @@ CardboardVRDisplay.prototype.onOrientationChange_ = function (e) {
 CardboardVRDisplay.prototype.onResize_ = function (e) {
   if (this.layer_) {
     var gl = this.layer_.source.getContext('webgl');
+    if (!gl) gl = this.layer_.source.getContext('experimental-webgl');
+    if (!gl) gl = this.layer_.source.getContext('webgl2');
     var cssProperties = ['position: absolute', 'top: 0', 'left: 0',
     'width: 100vw', 'height: 100vh', 'border: 0', 'margin: 0',
     'padding: 0px', 'box-sizing: content-box'];
@@ -5212,17 +5391,14 @@ class XRDevice extends EventTarget {
     this.global.window.addEventListener('resize', this.onWindowResize);
     this.environmentBlendMode = 'opaque';
   }
-  get depthNear() { throw new Error('Not implemented'); }
-  set depthNear(val) { throw new Error('Not implemented'); }
-  get depthFar() { throw new Error('Not implemented'); }
-  set depthFar(val) { throw new Error('Not implemented'); }
   onBaseLayerSet(sessionId, layer) { throw new Error('Not implemented'); }
-  onInlineVerticalFieldOfViewSet(sessionId, value) { throw new Error('Not implemented'); }
-  supportsSession(mode) { throw new Error('Not implemented'); }
-  async requestSession(mode) { throw new Error('Not implemented'); }
+  isSessionSupported(mode) { throw new Error('Not implemented'); }
+  isFeatureSupported(featureDescriptor) { throw new Error('Not implemented'); }
+  async requestSession(mode, enabledFeatures) { throw new Error('Not implemented'); }
   requestAnimationFrame(callback) { throw new Error('Not implemented'); }
   onFrameStart(sessionId) { throw new Error('Not implemented'); }
   onFrameEnd(sessionId) { throw new Error('Not implemented'); }
+  doesSessionSupportReferenceSpace(sessionId, type) { throw new Error('Not implemented'); }
   requestStageBounds() { throw new Error('Not implemented'); }
   async requestFrameOfReferenceTransform(type, options) {
     return undefined;
@@ -5240,9 +5416,19 @@ class XRDevice extends EventTarget {
   }
 }
 
+let daydream = {
+  mapping: '',
+  profiles: ['daydream', 'generic-trigger-touchpad'],
+  buttons: {
+    length: 3,
+    0: null,
+    1: null,
+    2: 0
+  },
+};
 let oculusGo = {
   mapping: 'xr-standard',
-  profiles: ['oculus-go', 'touchpad-controller'],
+  profiles: ['oculus-go', 'generic-trigger-touchpad'],
   buttons: {
     length: 3,
     0: 1,
@@ -5256,9 +5442,9 @@ let oculusGo = {
 let oculusTouch = {
   mapping: 'xr-standard',
   displayProfiles: {
-    'Oculus Quest': ['oculus-quest', 'oculus-touch', 'thumbstick-controller']
+    'Oculus Quest': ['oculus-touch-s', 'oculus-touch', 'generic-trigger-squeeze-thumbstick']
   },
-  profiles: ['oculus-touch', 'thumbstick-controller'],
+  profiles: ['oculus-touch', 'generic-trigger-squeeze-thumbstick'],
   axes: {
     length: 4,
     0: null,
@@ -5282,10 +5468,11 @@ let oculusTouch = {
 };
 let openVr = {
   mapping: 'xr-standard',
-  profiles: ['openvr-controller', 'touchpad-controller'],
+  profiles: ['openvr-controller', 'generic-trigger-squeeze-touchpad'],
   displayProfiles: {
-    'HTC Vive': ['htc-vive', 'touchpad-controller'],
-    'HTC Vive DVT': ['htc-vive', 'touchpad-controller']
+    'HTC Vive': ['htc-vive', 'generic-trigger-squeeze-touchpad'],
+    'HTC Vive DVT': ['htc-vive', 'generic-trigger-squeeze-touchpad'],
+    'Valve Index': ['valve-index', 'generic-trigger-squeeze-touchpad-thumbstick']
   },
   buttons: {
     length: 3,
@@ -5300,9 +5487,37 @@ let openVr = {
     orientation: [Math.PI * -0.08, 0, 0, 1]
   }
 };
+let samsungGearVR = {
+  mapping: 'xr-standard',
+  profiles: ['samsung-gearvr', 'generic-trigger-touchpad'],
+  buttons: {
+    length: 3,
+    0: 1,
+    1: null,
+    2: 0
+  },
+  gripTransform: {
+    orientation: [Math.PI * 0.11, 0, 0, 1]
+  }
+};
+let samsungOdyssey = {
+  mapping: 'xr-standard',
+  profiles: ['samsung-odyssey', 'microsoft-mixed-reality', 'generic-trigger-squeeze-touchpad-thumbstick'],
+  buttons: {
+    length: 4,
+    0: 1,
+    1: 0,
+    2: 2,
+    3: 4,
+  },
+  gripTransform: {
+    position: [0, -0.02, 0.04, 1],
+    orientation: [Math.PI * 0.11, 0, 0, 1]
+  }
+};
 let windowsMixedReality = {
   mapping: 'xr-standard',
-  profiles: ['windows-mixed-reality', 'touchpad-thumbstick-controller'],
+  profiles: ['microsoft-mixed-reality', 'generic-trigger-squeeze-touchpad-thumbstick'],
   buttons: {
     length: 4,
     0: 1,
@@ -5316,10 +5531,14 @@ let windowsMixedReality = {
   }
 };
 let GamepadMappings = {
+  'Daydream Controller': daydream,
+  'Gear VR Controller': samsungGearVR,
   'Oculus Go Controller': oculusGo,
   'Oculus Touch (Right)': oculusTouch,
   'Oculus Touch (Left)': oculusTouch,
   'OpenVR Gamepad': openVr,
+  'Spatial Controller (Spatial Interaction Source) 045E-065A': windowsMixedReality,
+  'Spatial Controller (Spatial Interaction Source) 045E-065D': samsungOdyssey,
   'Windows Mixed Reality (Right)': windowsMixedReality,
   'Windows Mixed Reality (Left)': windowsMixedReality,
 };
@@ -5476,7 +5695,7 @@ class OrientationArmModel {
   }
 }
 
-const PRIVATE$14 = Symbol('@@webxr-polyfill/XRRemappedGamepad');
+const PRIVATE$18 = Symbol('@@webxr-polyfill/XRRemappedGamepad');
 const PLACEHOLDER_BUTTON = { pressed: false, touched: false, value: 0.0 };
 Object.freeze(PLACEHOLDER_BUTTON);
 class XRRemappedGamepad {
@@ -5512,7 +5731,7 @@ class XRRemappedGamepad {
         profiles = map.displayProfiles[display.displayName];
       }
     }
-    this[PRIVATE$14] = {
+    this[PRIVATE$18] = {
       gamepad,
       map,
       profiles: profiles || [gamepad.id],
@@ -5525,9 +5744,9 @@ class XRRemappedGamepad {
     this._update();
   }
   _update() {
-    let gamepad = this[PRIVATE$14].gamepad;
-    let map = this[PRIVATE$14].map;
-    let axes = this[PRIVATE$14].axes;
+    let gamepad = this[PRIVATE$18].gamepad;
+    let map = this[PRIVATE$18].map;
+    let axes = this[PRIVATE$18].axes;
     for (let i = 0; i < axes.length; ++i) {
       if (map.axes && i in map.axes) {
         if (map.axes[i] === null) {
@@ -5544,7 +5763,7 @@ class XRRemappedGamepad {
         axes[axis] *= -1;
       }
     }
-    let buttons = this[PRIVATE$14].buttons;
+    let buttons = this[PRIVATE$18].buttons;
     for (let i = 0; i < buttons.length; ++i) {
       if (map.buttons && i in map.buttons) {
         if (map.buttons[i] === null) {
@@ -5561,25 +5780,25 @@ class XRRemappedGamepad {
     return '';
   }
   get _profiles() {
-    return this[PRIVATE$14].profiles;
+    return this[PRIVATE$18].profiles;
   }
   get index() {
     return -1;
   }
   get connected() {
-    return this[PRIVATE$14].gamepad.connected;
+    return this[PRIVATE$18].gamepad.connected;
   }
   get timestamp() {
-    return this[PRIVATE$14].gamepad.timestamp;
+    return this[PRIVATE$18].gamepad.timestamp;
   }
   get mapping() {
-    return this[PRIVATE$14].mapping;
+    return this[PRIVATE$18].mapping;
   }
   get axes() {
-    return this[PRIVATE$14].axes;
+    return this[PRIVATE$18].axes;
   }
   get buttons() {
-    return this[PRIVATE$14].buttons;
+    return this[PRIVATE$18].buttons;
   }
 }
 class GamepadXRInputSource {
@@ -5611,7 +5830,7 @@ class GamepadXRInputSource {
         this.gamepad = null;
       }
     }
-    this.handedness = gamepad.hand;
+    this.handedness = gamepad.hand === '' ? 'none' : gamepad.hand;
     if (this.gamepad) {
       this.gamepad._update();
     }
@@ -5658,8 +5877,8 @@ class GamepadXRInputSource {
     switch(poseType) {
       case "target-ray":
         coordinateSystem._transformBasePoseMatrix(this.outputMatrix, this.basePoseMatrix);
-        if (this.gamepad && this.gamepad[PRIVATE$14].targetRayTransform) {
-          multiply(this.outputMatrix, this.outputMatrix, this.gamepad[PRIVATE$14].targetRayTransform);
+        if (this.gamepad && this.gamepad[PRIVATE$18].targetRayTransform) {
+          multiply(this.outputMatrix, this.outputMatrix, this.gamepad[PRIVATE$18].targetRayTransform);
         }
         break;
       case "grip":
@@ -5667,8 +5886,8 @@ class GamepadXRInputSource {
           return null;
         }
         coordinateSystem._transformBasePoseMatrix(this.outputMatrix, this.basePoseMatrix);
-        if (this.gamepad && this.gamepad[PRIVATE$14].gripTransform) {
-          multiply(this.outputMatrix, this.outputMatrix, this.gamepad[PRIVATE$14].gripTransform);
+        if (this.gamepad && this.gamepad[PRIVATE$18].gripTransform) {
+          multiply(this.outputMatrix, this.outputMatrix, this.gamepad[PRIVATE$18].gripTransform);
         }
         break;
       default:
@@ -5690,13 +5909,13 @@ const PRIMARY_BUTTON_MAP = {
 };
 let SESSION_ID = 0;
 class Session {
-  constructor(mode, polyfillOptions={}) {
+  constructor(mode, enabledFeatures, polyfillOptions={}) {
     this.mode = mode;
+    this.enabledFeatures = enabledFeatures;
     this.outputContext = null;
     this.immersive = mode == 'immersive-vr' || mode == 'immersive-ar';
     this.ended = null;
     this.baseLayer = null;
-    this.inlineVerticalFieldOfView = Math.PI * 0.5;
     this.id = ++SESSION_ID;
     this.modifiedCanvasLayer = false;
     if (this.outputContext && !TEST_ENV) {
@@ -5749,15 +5968,7 @@ class WebVRDevice extends XRDevice {
       session.baseLayer = layer;
     }
   }
-  onInlineVerticalFieldOfViewSet(sessionId, value) {
-    const session = this.sessions.get(sessionId);
-    session.inlineVerticalFieldOfView = value;
-  }
-  supportsSession(mode) {
-    if (XRSessionModes.indexOf(mode) == -1) {
-      throw new TypeError(
-          `The provided value '${mode}' is not a valid enum value of type XRSessionMode`);
-    }
+  isSessionSupported(mode) {
     if (mode == 'immersive-ar') {
       return false;
     }
@@ -5766,8 +5977,18 @@ class WebVRDevice extends XRDevice {
     }
     return true;
   }
-  async requestSession(mode) {
-    if (!this.supportsSession(mode)) {
+  isFeatureSupported(featureDescriptor) {
+    switch(featureDescriptor) {
+      case 'viewer': return true;
+      case 'local': return true;
+      case 'local-floor': return true;
+      case 'bounded': return false;
+      case 'unbounded': return false;
+      default: return false;
+    }
+  }
+  async requestSession(mode, enabledFeatures) {
+    if (!this.isSessionSupported(mode)) {
       return Promise.reject();
     }
     let immersive = mode == 'immersive-vr';
@@ -5779,7 +6000,7 @@ class WebVRDevice extends XRDevice {
       await this.display.requestPresent([{
           source: canvas, attributes: EXTRA_PRESENTATION_ATTRIBUTES }]);
     }
-    const session = new Session(mode, {
+    const session = new Session(mode, enabledFeatures, {
       renderContextType: this.HAS_BITMAP_SUPPORT ? 'bitmaprenderer' : '2d'
     });
     this.sessions.set(session.id, session);
@@ -5803,7 +6024,9 @@ class WebVRDevice extends XRDevice {
     }
     return Math.min(primaryButton, gamepad.buttons.length - 1);
   }
-  onFrameStart(sessionId) {
+  onFrameStart(sessionId, renderState) {
+    this.display.depthNear = renderState.depthNear;
+    this.display.depthFar = renderState.depthFar;
     this.display.getFrameData(this.frame);
     const session = this.sessions.get(sessionId);
     if (session.immersive && this.CAN_USE_GAMEPAD) {
@@ -5836,8 +6059,8 @@ class WebVRDevice extends XRDevice {
     }
     if (!session.immersive && session.baseLayer) {
       const canvas = session.baseLayer.context.canvas;
-      perspective(this.frame.leftProjectionMatrix, session.inlineVerticalFieldOfView,
-          canvas.width/canvas.height, this.depthNear, this.depthFar);
+      perspective(this.frame.leftProjectionMatrix, renderState.inlineVerticalFieldOfView,
+          canvas.width/canvas.height, renderState.depthNear, renderState.depthFar);
     }
   }
   onFrameEnd(sessionId) {
@@ -5891,6 +6114,13 @@ class WebVRDevice extends XRDevice {
       session.ended = true;
     }
   }
+  doesSessionSupportReferenceSpace(sessionId, type) {
+    const session = this.sessions.get(sessionId);
+    if (session.ended) {
+      return false;
+    }
+    return session.enabledFeatures.has(type);
+  }
   requestStageBounds() {
     if (this.display.stageParameters) {
       const width = this.display.stageParameters.sizeX;
@@ -5936,7 +6166,7 @@ class WebVRDevice extends XRDevice {
       target.height = height;
       return true;
     }
-    if (eye === 'left') {
+    if (eye === 'left' || eye === 'none') {
       target.x = 0;
     } else if (eye === 'right') {
       target.x = width / 2;
@@ -5961,7 +6191,7 @@ class WebVRDevice extends XRDevice {
     return this.baseModelMatrix;
   }
   getBaseViewMatrix(eye) {
-    if (eye === 'left') {
+    if (eye === 'left' || eye === 'none') {
       return this.frame.leftViewMatrix;
     } else if (eye === 'right') {
       return this.frame.rightViewMatrix;
@@ -6025,6 +6255,108 @@ class CardboardXRDevice extends WebVRDevice {
   }
 }
 
+const TEST_ENV$1 = "production" === 'test';
+let SESSION_ID$1 = 0;
+class Session$1 {
+  constructor(mode, enabledFeatures) {
+    this.mode = mode;
+    this.enabledFeatures = enabledFeatures;
+    this.ended = null;
+    this.baseLayer = null;
+    this.id = ++SESSION_ID$1;
+  }
+}
+class InlineDevice extends XRDevice {
+  constructor(global) {
+    super(global);
+    this.sessions = new Map();
+    this.projectionMatrix = create();
+    this.identityMatrix = create();
+  }
+  onBaseLayerSet(sessionId, layer) {
+    const session = this.sessions.get(sessionId);
+    session.baseLayer = layer;
+  }
+  isSessionSupported(mode) {
+    return mode == 'inline';
+  }
+  isFeatureSupported(featureDescriptor) {
+    switch(featureDescriptor) {
+      case 'viewer': return true;
+      default: return false;
+    }
+  }
+  async requestSession(mode, enabledFeatures) {
+    if (!this.isSessionSupported(mode)) {
+      return Promise.reject();
+    }
+    const session = new Session$1(mode, enabledFeatures);
+    this.sessions.set(session.id, session);
+    return Promise.resolve(session.id);
+  }
+  requestAnimationFrame(callback) {
+    return window.requestAnimationFrame(callback);
+  }
+  cancelAnimationFrame(handle) {
+    window.cancelAnimationFrame(handle);
+  }
+  onFrameStart(sessionId, renderState) {
+    if (TEST_ENV$1) {
+      return;
+    }
+    const session = this.sessions.get(sessionId);
+    if (session.baseLayer) {
+      const canvas = session.baseLayer.context.canvas;
+      perspective(this.projectionMatrix, renderState.inlineVerticalFieldOfView,
+          canvas.width/canvas.height, renderState.depthNear, renderState.depthFar);
+    }
+  }
+  onFrameEnd(sessionId) {
+  }
+  async endSession(sessionId) {
+    const session = this.sessions.get(sessionId);
+    session.ended = true;
+  }
+  doesSessionSupportReferenceSpace(sessionId, type) {
+    const session = this.sessions.get(sessionId);
+    if (session.ended) {
+      return false;
+    }
+    return session.enabledFeatures.has(type);
+  }
+  requestStageBounds() {
+    return null;
+  }
+  async requestFrameOfReferenceTransform(type, options) {
+    return null;
+  }
+  getProjectionMatrix(eye) {
+    return this.projectionMatrix;
+  }
+  getViewport(sessionId, eye, layer, target) {
+    const session = this.sessions.get(sessionId);
+    const { width, height } = layer.context.canvas;
+    target.x = target.y = 0;
+    target.width = width;
+    target.height = height;
+    return true;
+  }
+  getBasePoseMatrix() {
+    return this.identityMatrix;
+  }
+  getBaseViewMatrix(eye) {
+    return this.identityMatrix;
+  }
+  getInputSources() {
+    return [];
+  }
+  getInputPose(inputSource, coordinateSystem, poseType) {
+    return null;
+  }
+  onWindowResize() {
+  }
+}
+
 const getWebVRDevice = async function (global) {
   let device = null;
   if ('getVRDisplays' in global.navigator) {
@@ -6044,16 +6376,21 @@ const requestXRDevice = async function (global, config) {
       return xr;
     }
   }
-  if (!global.VRFrameData) {
-    global.VRFrameData = function () {
-      this.rightViewMatrix = new Float32Array(16);
-      this.leftViewMatrix = new Float32Array(16);
-      this.rightProjectionMatrix = new Float32Array(16);
-      this.leftProjectionMatrix = new Float32Array(16);
-      this.pose = null;
-    };
+  let mobile = isMobile(global);
+  if ((mobile && config.cardboard) ||
+      (!mobile && config.allowCardboardOnDesktop)) {
+    if (!global.VRFrameData) {
+      global.VRFrameData = function () {
+        this.rightViewMatrix = new Float32Array(16);
+        this.leftViewMatrix = new Float32Array(16);
+        this.rightProjectionMatrix = new Float32Array(16);
+        this.leftProjectionMatrix = new Float32Array(16);
+        this.pose = null;
+      };
+    }
+    return new CardboardXRDevice(global, config.cardboardConfig);
   }
-  return new CardboardXRDevice(global, config.cardboardConfig);
+  return new InlineDevice(global);
 };
 
 const CONFIG_DEFAULTS = {
@@ -6113,6 +6450,24 @@ class WebXRPolyfill {
   _injectCompatibilityShims(global) {
     if (!partials.every(iface => !!global[iface])) {
       throw new Error(`Global must have the following attributes : ${partials}`);
+    }
+    if (global.navigator.xr &&
+        'supportsSession' in global.navigator.xr &&
+        !('isSessionSupported' in global.navigator.xr)) {
+      let originalSupportsSession = global.navigator.xr.supportsSession;
+      global.navigator.xr.isSessionSupported = function(mode) {
+        return originalSupportsSession.call(this, mode).then(() => {
+          return true;
+        }).catch(() => {
+          return false;
+        });
+      };
+      global.navigator.xr.supportsSession = function(mode) {
+        console.warn("navigator.xr.supportsSession() is deprecated. Please " +
+        "call navigator.xr.isSessionSupported() instead and check the boolean " +
+        "value returned when the promise resolves.");
+        return originalSupportsSession.call(this, mode);
+      };
     }
     if (global.XRWebGLLayer) {
       let originalRequestSession = global.navigator.xr.requestSession;
