@@ -12,94 +12,90 @@ const {/*WebGLRenderingContext, WebGL2RenderingContext,*/ CanvasRenderingContext
 
 const hasWebGL2 = !!window.WebGL2RenderingContext;
 
-const _makeState = () => {
-  const gl = GlobalContext.proxyContext;
+class WebGLState {
+  constructor() {
+    const gl = GlobalContext.proxyContext;
 
-  return {
-    vao: null,
+    this.vao = null;
 
-    arrayBuffer: null,
-    renderbuffer: {
-      [gl.RENDERBUFFER]: null,
-    },
-    framebuffer: hasWebGL2 ? {
-      [gl.READ_FRAMEBUFFER]: null,
-      [gl.DRAW_FRAMEBUFFER]: null,
-    } : {
-      [gl.FRAMEBUFFER]: null,
-    },
+    this.arrayBuffer = null;
+    this.framebuffer = new WebGLStateFramebuffer(gl);
+    this.renderbuffer = new WebGLStateRenderBuffer(gl);
 
-    blend: false,
-    cullFace: false,
-    depthTest: false,
-    dither: false,
-    polygonOffsetFill: false,
-    sampleAlphaToCoverage: false,
-    sampleCoverage: false,
-    scissorTest: false,
-    stencilTest: false,
+    this.blend = false;
+    this.cullFace = false;
+    this.depthTest = false;
+    this.dither = false;
+    this.polygonOffsetFill = false;
+    this.sampleAlphaToCoverage = false;
+    this.sampleCoverageValue = false;
+    this.scissorTest = false;
+    this.stencilTest = false;
 
-    activeTexture: gl.TEXTURE0,
+    this.activeTexture = gl.TEXTURE0;
 
-    packAlignment: 4,
-    unpackAlignment: 4,
-    unpackColorspaceConversion: gl.BROWSER_DEFAULT_WEBGL,
-    unpackFlipY: 0,
-    unpackPremultiplyAlpha: 0,
+    this.packAlignment = 4;
+    this.unpackAlignment = 4;
+    this.unpackColorspaceConversion = gl.BROWSER_DEFAULT_WEBGL;
+    this.unpackFlipY = 0;
+    this.unpackPremultiplyAlpha = 0;
 
-    currentProgram: null,
-    viewport: [0, 0, gl.canvas.width, gl.canvas.height],
-    scissor: [0, 0, 0, 0],
-    blendSrcRgb: gl.ONE,
-    blendDstRgb: gl.ZERO,
-    blendSrcAlpha: gl.ONE,
-    blendDstAlpha: gl.ZERO,
-    blendEquationRgb: gl.FUNC_ADD,
-    blendEquationAlpha: gl.FUNC_ADD,
-    blendColor: [0, 0, 0, 0],
-    colorClearValue: [0, 0, 0, 0],
-    colorMask: [true, true, true, true],
-    cullFaceMode: gl.BACK,
-    depthClearValue: 1,
-    depthFunc: gl.LESS,
-    depthRange: [0, 1],
-    depthMask: true,
-    frontFace: gl.CCW,
-    generateMipmapHint: gl.DONT_CARE,
-    lineWidth: 1,
-    polygonOffsetFactor: 0,
-    polygonOffsetUnits: 0,
-    sampleCoverageValue: 1,
-    sampleCoverageUnits: false,
-    stencilBackFail: gl.KEEP,
-    stencilBackFunc: gl.ALWAYS,
-    stencilBackPassDepthFail: gl.KEEP,
-    stencilBackPassDepthPass: gl.KEEP,
-    stencilBackRef: 0,
-    stencilBackValueMask: 0xFFFFFFFF,
-    stencilBackWriteMask: 0xFFFFFFFF,
-    stencilClearValue: 0,
-    stencilFail: gl.KEEP,
-    stencilFunc: gl.ALWAYS,
-    stencilPassDepthFail: gl.KEEP,
-    stencilPassDpethPass: gl.KEEP,
-    stencilRef: 0,
-    stencilValueMask: 0xFFFFFFFF,
-    stencilWriteMask: 0xFFFFFFFF,
+    this.currentProgram = null;
+    this.viewport = [0, 0, gl.canvas.width, gl.canvas.height];
+    this.scissor = [0, 0, 0, 0];
+    this.blendFunc = [gl.ONE, gl.ZERO, gl.ONE, gl.ZERO];
+    this.blendEquation = [gl.FUNC_ADD, gl.FUNC_ADD];
+    this.blendColor = [0, 0, 0, 0];
+    this.colorClearValue = [0, 0, 0, 0];
+    this.colorMask = [true, true, true, true];
+    this.cullFaceMode = gl.BACK;
+    this.depthClearValue = 1;
+    this.depthFunc = gl.LESS;
+    this.depthRange = [0, 1];
+    this.depthMask = true;
+    this.frontFace = gl.CCW;
+    this.generateMipmapHint = gl.DONT_CARE;
+    this.lineWidth = 1;
+    this.polygonOffset = [0, 0];
+    this.sampleCoverage = [1, false];
+    this.stencilFuncBack = [gl.ALWAYS, 0, 0xFFFFFFFF];
+    this.stencilOpBack = [gl.KEEP, gl.KEEP, gl.KEEP];
+    this.stencilFunc = [gl.ALWAYS, 0, 0xFFFFFFFF];
+    this.stencilOp = [gl.KEEP, gl.KEEP, gl.KEEP];
+    this.stencilBackWriteMask = 0xFFFFFFFF;
+    this.stencilWriteMask = 0xFFFFFFFF;
+    this.stencilClearValue = 0;
 
-    textureUnits: (() => {
-      const numTextureUnits = gl.getParameter(gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS);
-      const result = Array(numTextureUnits);
-      for (let i = 0; i < numTextureUnits; i++) {
-        result[i] = {
-          texture2D: null,
-          textureCubemap: null,
-        };
-      }
-      return result;
-    })(),
-  };
-};
+    const numTextureUnits = gl.getParameter(gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS);
+    const textureUnits = Array(numTextureUnits);
+    for (let i = 0; i < numTextureUnits; i++) {
+      textureUnits[i] = new WebGLStateTextureUnit();
+    }
+    this.textureUnits = textureUnits;
+  }
+}
+class WebGLStateFramebuffer {
+  constructor(gl) {
+    if (hasWebGL2) {
+      this[gl.READ_FRAMEBUFFER] = null;
+      this[gl.DRAW_FRAMEBUFFER] = null;
+    } else {
+      this[gl.FRAMEBUFFER] = null;
+    }
+  }
+}
+class WebGLStateRenderBuffer {
+  constructor(gl) {
+    this[gl.RENDERBUFFER] = null;
+  }
+}
+class WebGLStateTextureUnit {
+  constructor() {
+    this.texture2D = null;
+    this.textureCubemap = null;
+  }
+}
+
 HTMLCanvasElement.prototype.getContext = (oldGetContext => function getContext(type, init = {}) {
   const match = type.match(/^(?:experimental-)?(webgl2?)$/);
   if (match && (hasWebGL2 || match[1] !== 'webgl2')) {
@@ -159,7 +155,7 @@ function ProxiedWebGLRenderingContext(canvas) {
   });
 
   this.id = ++GlobalContext.xrState.id[0];
-  this.state = _makeState();
+  this.state = new WebGLState();
   this._enabled = {
     blend: true,
     clear: true,
@@ -331,84 +327,128 @@ ProxiedWebGLRenderingContext.prototype.clear = (oldClear => function clear() {
   }
 })(ProxiedWebGLRenderingContext.prototype.clear);
 ProxiedWebGLRenderingContext.prototype.makeXrCompatible = function makeXrCompatible() {};
-function enableDisable(gl, feature, enable) {
-  if (enable) {
-    gl.enable(feature);
-  } else {
-    gl.disable(feature);
+function enableDisable(gl, feature, enable, enable2) {
+  if (enable !== enable2) {
+    if (enable) {
+      gl.enable(feature);
+    } else {
+      gl.disable(feature);
+    }
+  }
+}
+function setValue(gl, fn, state, state2) {
+  if (state !== state2) {
+    fn.call(gl, state);
+  }
+}
+function setKeyValue(gl, fn, key, state, state2) {
+  if (state !== state2) {
+    fn.call(gl, key, state);
+  }
+}
+function setArray2(gl, fn, state, state2) {
+  if (state[0] !== state2[0] || state[1] !== state2[1]) {
+    fn.call(gl, state[0], state[1]);
+  }
+}
+function setArray4(gl, fn, state, state2) {
+  if (state[0] !== state2[0] || state[1] !== state2[1] || state[2] !== state2[2] || state[3] !== state2[3]) {
+    fn.call(gl, state[0], state[1], state[2], state[3]);
+  }
+}
+function setKeyArray3(gl, fn, key, state, state2) {
+  if (state[0] !== state2[0] || state[1] !== state2[1] || state[2] !== state2[2]) {
+    fn.call(gl, key, state[0], state[1], state[2]);
+  }
+}
+function setTextureUnits(gl, state, state2) {
+  for (let i = state.textureUnits.length - 1; i >= 0; i--) {
+    const textureUnit = state.textureUnits[i];
+    const textureUnit2 = state2.textureUnits[i];
+    const texture2DDiff = textureUnit.texture2D !== textureUnit2.texture2D;
+    const textureCubemapDiff = textureUnit.textureCubemap !== textureUnit2.textureCubemap;
+    if (texture2DDiff || textureCubemapDiff) {
+      gl.activeTexture(gl.TEXTURE0 + i);
+      if (texture2DDiff) {
+        gl.bindTexture(gl.TEXTURE_2D, textureUnit.texture2D);
+      }
+      if (textureCubemapDiff) {
+        gl.bindTexture(gl.TEXTURE_CUBE_MAP, textureUnit.textureCubemap);
+      }
+    }
+  }
+  if (state.activeTexture !== gl.TEXTURE0) {
+    gl.activeTexture(state.activeTexture);
   }
 }
 ProxiedWebGLRenderingContext.prototype.setProxyState = function setProxyState() {
+  const gl = GlobalContext.proxyContext;
   if (GlobalContext.proxyContext.binding !== this) {
     const {state} = this;
-    const gl = GlobalContext.proxyContext;
+    const state2 = GlobalContext.proxyContext.binding ? GlobalContext.proxyContext.binding.state : new WebGLState();
 
     if (hasWebGL2) {
-      gl.bindVertexArray(state.vao);
+      setValue(gl, gl.bindVertexArray, state.vao, state2.vao);
     }
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, state.arrayBuffer);
-    gl.bindRenderbuffer(gl.RENDERBUFFER, state.renderbuffer[gl.RENDERBUFFER]);
+    setKeyValue(gl, gl.bindBuffer, gl.ARRAY_BUFFER, state.arrayBuffer, state2.arrayBuffer);
+    setKeyValue(gl, gl.bindRenderbuffer, gl.RENDERBUFFER, state.renderbuffer[gl.RENDERBUFFER], state2.renderbuffer[gl.RENDERBUFFER]);
     if (hasWebGL2) {
-      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, state.framebuffer[gl.READ_FRAMEBUFFER]);
-      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, state.framebuffer[gl.DRAW_FRAMEBUFFER]);
+      setKeyValue(gl, gl.bindFramebuffer, gl.READ_FRAMEBUFFER, state.framebuffer[gl.READ_FRAMEBUFFER], state2.framebuffer[gl.READ_FRAMEBUFFER]);
+      setKeyValue(gl, gl.bindFramebuffer, gl.DRAW_FRAMEBUFFER, state.framebuffer[gl.DRAW_FRAMEBUFFER], state2.framebuffer[gl.DRAW_FRAMEBUFFER]);
     } else {
-      gl.bindFramebuffer(gl.FRAMEBUFFER, state.framebuffer[gl.FRAMEBUFFER]);
+      setKeyValue(gl, gl.bindFramebuffer, gl.FRAMEBUFFER, state.framebuffer[gl.FRAMEBUFFER], state2.framebuffer[gl.FRAMEBUFFER]);
     }
 
     if (this._enabled.blend) {
-      enableDisable(gl, gl.BLEND, state.blend);
+      enableDisable(gl, gl.BLEND, state.blend, state2.blend);
     }
-    enableDisable(gl, gl.CULL_FACE, state.cullFace);
-    enableDisable(gl, gl.DEPTH_TEST, state.depthTest);
-    enableDisable(gl, gl.DITHER, state.dither);
-    enableDisable(gl, gl.POLYGON_OFFSET_FILL, state.polygonOffsetFill);
-    enableDisable(gl, gl.SAMPLE_ALPHA_TO_COVERAGE, state.sampleAlphaToCoverage);
-    enableDisable(gl, gl.SAMPLE_COVERAGE, state.sampleCoverage);
-    enableDisable(gl, gl.SCISSOR_TEST, state.scissorTest);
-    enableDisable(gl, gl.STENCIL_TEST, state.stencilTest);
+    enableDisable(gl, gl.CULL_FACE, state.cullFace, state2.cullFace);
+    enableDisable(gl, gl.DEPTH_TEST, state.depthTest, state2.depthTest);
+    enableDisable(gl, gl.DITHER, state.dither, state2.dither);
+    enableDisable(gl, gl.POLYGON_OFFSET_FILL, state.polygonOffsetFill, state2.polygonOffsetFill);
+    enableDisable(gl, gl.SAMPLE_ALPHA_TO_COVERAGE, state.sampleAlphaToCoverage, state2.sampleAlphaToCoverage);
+    enableDisable(gl, gl.SAMPLE_COVERAGE, state.sampleCoverageValue, state2.sampleCoverageValue);
+    enableDisable(gl, gl.SCISSOR_TEST, state.scissorTest, state2.scissorTest);
+    enableDisable(gl, gl.STENCIL_TEST, state.stencilTest, state2.stencilTest);
 
-    gl.pixelStorei(gl.PACK_ALIGNMENT, state.packAlignment);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, state.unpackAlignment);
-    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, state.unpackColorspaceConversion);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, state.unpackFlipY);
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, state.unpackPremultiplyAlpha);
+    setKeyValue(gl, gl.pixelStorei, gl.PACK_ALIGNMENT, state.packAlignment, state2.packAlignment);
+    setKeyValue(gl, gl.pixelStorei, gl.UNPACK_ALIGNMENT, state.unpackAlignment, state2.unpackAlignment);
+    setKeyValue(gl, gl.pixelStorei, gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, state.unpackColorspaceConversion, state2.unpackColorspaceConversion);
+    setKeyValue(gl, gl.pixelStorei, gl.UNPACK_FLIP_Y_WEBGL, state.unpackFlipY, state2.unpackFlipY);
+    setKeyValue(gl, gl.pixelStorei, gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, state.unpackPremultiplyAlpha, state2.unpackPremultiplyAlpha);
 
-    gl.useProgram(state.currentProgram);
+    setValue(gl, gl.useProgram, state.currentProgram, state2.currentProgram);
 
-    gl.viewport(state.viewport[0], state.viewport[1], state.viewport[2], state.viewport[3]);
-    gl.scissor(state.scissor[0], state.scissor[1], state.scissor[2], state.scissor[3]);
+    setArray4(gl, gl.viewport, state.viewport, state2.viewport);
+    setArray4(gl, gl.scissor, state.scissor, state2.scissor);
     if (this._enabled.blend) {
-      gl.blendFuncSeparate(state.blendSrcRgb, state.blendDstRgb, state.blendSrcAlpha, state.blendDstAlpha);
-      gl.blendEquationSeparate(state.blendEquationRgb, state.blendEquationAlpha);
-      gl.blendColor(state.blendColor[0], state.blendColor[1], state.blendColor[2], state.blendColor[3]);
+      setArray4(gl, gl.blendFunc, state.blendFunc, state2.blendFunc);
+      setArray2(gl, gl.blendEquationSeparate, state.blendEquation, state2.blendEquation);
+      setArray4(gl, gl.blendColor, state.blendColor, state2.blendColor);
     }
-    gl.clearColor(state.colorClearValue[0], state.colorClearValue[1], state.colorClearValue[2], state.colorClearValue[3]);
-    gl.colorMask(state.colorMask[0], state.colorMask[1], state.colorMask[2], state.colorMask[3]);
-    gl.cullFace(state.cullFaceMode);
-    gl.clearDepth(state.depthClearValue);
-    gl.depthFunc(state.depthFunc);
-    gl.depthRange(state.depthRange[0], state.depthRange[1], state.depthRange[2], state.depthRange[3]);
-    gl.depthMask(state.depthMask);
-    gl.frontFace(state.frontFace);
-    gl.hint(gl.GENERATE_MIPMAP_HINT, state.generateMipmapHint);
-    gl.lineWidth(state.lineWidth);
-    gl.polygonOffset(state.polygonOffsetFactor, state.polygonOffsetUnits);
-    gl.sampleCoverage(state.sampleCoverageValue, state.sampleCoverageUnits);
-    gl.stencilFuncSeparate(gl.BACK, state.stencilBackFunc, state.stencilBackRef, state.stencilBackValueMask);
-    gl.stencilFuncSeparate(gl.FRONT, state.stencilFunc, state.stencilRef, state.stencilValueMask);
-    gl.stencilOpSeparate(gl.BACK, state.stencilBackFail, state.stencilBackPassDepthFail, state.stencilBackPassDepthPass);
-    gl.stencilOpSeparate(gl.FRONT, state.stencilFail, state.stencilPassDepthFail, state.stencilPassDepthPass);
-    gl.stencilMaskSeparate(gl.BACK, state.stencilBackWriteMask);
-    gl.stencilMaskSeparate(gl.FRONT, state.stencilWriteMask);
-    gl.clearStencil(state.stencilClearValue);
+    setArray4(gl, gl.clearColor, state.colorClearValue, state2.colorClearValue);
+    setArray4(gl, gl.colorMask, state.colorMask, state2.colorMask);
+    setValue(gl, gl.cullFace, state.cullFaceMode, state2.cullFaceMode);
+    setValue(gl, gl.clearDepth, state.depthClearValue, state2.depthClearValue);
+    setValue(gl, gl.depthFunc, state.depthFunc, state2.depthFunc);
+    setArray4(gl, gl.depthRange, state.depthRange, state2.depthRange);
+    setValue(gl, gl.depthMask, state.depthMask, state2.depthMask);
+    // setValue(gl, gl.frontFace, state.frontFace, state2.frontFace);
+    gl.frontFace(state.frontFace); // XXX initial value is not captured connectly
+    setKeyValue(gl, gl.hint, gl.GENERATE_MIPMAP_HINT, state.generateMipmapHint, state2.generateMipmapHint);
+    setValue(gl, gl.lineWidth, state.lineWidth, state2.lineWidth);
+    setArray2(gl, gl.polygonOffset, state.polygonOffset, state2.polygonOffset);
+    setArray2(gl, gl.sampleCoverage, state.sampleCoverage, state2.sampleCoverage);
+    setKeyArray3(gl, gl.stencilFuncSeparate, gl.BACK, state.stencilFuncBack, state2.stencilFuncBack);
+    setKeyArray3(gl, gl.stencilFuncSeparate, gl.FRONT, state.stencilFunc, state2.stencilFunc);
+    setKeyArray3(gl, gl.stencilOpSeparate, gl.BACK, state.stencilOpBack, state2.stencilOpBack);
+    setKeyArray3(gl, gl.stencilOpSeparate, gl.FRONT, state.stencilOp, state2.stencilOp);
+    setKeyValue(gl, gl.stencilMaskSeparate, gl.BACK, state.stencilBackWriteMask, state2.stencilBackWriteMask);
+    setKeyValue(gl, gl.stencilMaskSeparate, gl.FRONT, state.stencilWriteMask, state2.stencilWriteMask);
+    setValue(gl, gl.clearStencil, state.stencilClearValue, state2.stencilClearValue);
 
-    for (let i = 0; i < state.textureUnits.length; i++) {
-      gl.activeTexture(gl.TEXTURE0 + i);
-      gl.bindTexture(gl.TEXTURE_2D, state.textureUnits[i].texture2D);
-      gl.bindTexture(gl.TEXTURE_CUBE_MAP, state.textureUnits[i].textureCubemap);
-    }
-    gl.activeTexture(state.activeTexture);
+    setTextureUnits(gl, state, state2);
 
     GlobalContext.proxyContext.binding = this;
   }
@@ -552,33 +592,33 @@ ProxiedWebGLRenderingContext.prototype.scissor = (_scissor => function scissor(x
   return _scissor.apply(this, arguments);
 })(ProxiedWebGLRenderingContext.prototype.scissor);
 ProxiedWebGLRenderingContext.prototype.blendFunc = (_blendFunc => function blendFunc(blendSrc, blendDst) {
-  this.state.blendSrcRgb = blendSrc;
-  this.state.blendDstRgb = blendDst;
-  this.state.blendSrcAlpha = blendSrc;
-  this.state.blendDstAlpha = blendDst;
+  this.state.blendFunc[0] = blendSrc;
+  this.state.blendFunc[1] = blendDst;
+  this.state.blendFunc[2] = blendSrc;
+  this.state.blendFunc[3] = blendDst;
   if (this._enabled.blend) {
     return _blendFunc.apply(this, arguments);
   }
 })(ProxiedWebGLRenderingContext.prototype.blendFunc);
 ProxiedWebGLRenderingContext.prototype.blendFuncSeparate = (_blendFuncSeparate => function blendFuncSeparate(blendSrcRgb, blendDstRgb, blendSrcAlpha, blendDstAlpha) {
-  this.state.blendSrcRgb = blendSrcRgb;
-  this.state.blendDstRgb = blendDstRgb;
-  this.state.blendSrcAlpha = blendSrcAlpha;
-  this.state.blendDstAlpha = blendDstAlpha;
+  this.state.blendFunc[0] = blendSrcRgb;
+  this.state.blendFunc[1] = blendDstRgb;
+  this.state.blendFunc[2] = blendSrcAlpha;
+  this.state.blendFunc[3] = blendDstAlpha;
   if (this._enabled.blend) {
     return _blendFuncSeparate.apply(this, arguments);
   }
 })(ProxiedWebGLRenderingContext.prototype.blendFuncSeparate);
 ProxiedWebGLRenderingContext.prototype.blendEquation = (_blendEquation => function blendEquation(blendEquation) {
-  this.state.blendEquationRgb = blendEquation;
-  this.state.blendEquationAlpha = blendEquation;
+  this.state.blendEquation[0] = blendEquation;
+  this.state.blendEquation[1] = blendEquation;
   if (this._enabled.blend) {
     return _blendEquation.apply(this, arguments);
   }
 })(ProxiedWebGLRenderingContext.prototype.blendEquation);
 ProxiedWebGLRenderingContext.prototype.blendEquationSeparate = (_blendEquationSeparate => function blendEquationSeparate(blendEquationRgb, blendEquationAlpha) {
-  this.state.blendEquationRgb = blendEquationRgb;
-  this.state.blendEquationAlpha = blendEquationAlpha;
+  this.state.blendEquation[0] = blendEquationRgb;
+  this.state.blendEquation[1] = blendEquationAlpha;
   if (this._enabled.blend) {
     return _blendEquationSeparate.apply(this, arguments);
   }
@@ -643,65 +683,65 @@ ProxiedWebGLRenderingContext.prototype.lineWidth = (_lineWidth => function lineW
   return _lineWidth.apply(this, arguments);
 })(ProxiedWebGLRenderingContext.prototype.lineWidth);
 ProxiedWebGLRenderingContext.prototype.polygonOffset = (_polygonOffset => function polygonOffset(polygonOffsetFactor, polygonOffsetUnits) {
-  this.state.polygonOffsetFactor = polygonOffsetFactor;
-  this.state.polygonOffsetUnits = polygonOffsetUnits;
+  this.state.polygonOffset[0] = polygonOffsetFactor;
+  this.state.polygonOffset[1] = polygonOffsetUnits;
   return _polygonOffset.apply(this, arguments);
 })(ProxiedWebGLRenderingContext.prototype.polygonOffset);
 ProxiedWebGLRenderingContext.prototype.sampleCoverage = (_sampleCoverage => function sampleCoverage(sampleCoverageValue, sampleCoverageUnits) {
-  this.state.sampleCoverageValue = sampleCoverageValue;
-  this.state.sampleCoverageUnits = sampleCoverageUnits;
+  this.state.sampleCoverage[0] = sampleCoverageValue;
+  this.state.sampleCoverage[1] = sampleCoverageUnits;
   return _sampleCoverage.apply(this, arguments);
 })(ProxiedWebGLRenderingContext.prototype.sampleCoverage);
 ProxiedWebGLRenderingContext.prototype.stencilFunc = (_stencilFunc => function stencilFunc(func, ref, mask) {
-  this.state.stencilBackFunc = func;
-  this.state.stencilBackRef = ref;
-  this.state.stencilBackValueMask = mask;
+  this.state.stencilFuncBack[0] = func;
+  this.state.stencilFuncBack[1] = ref;
+  this.state.stencilFuncBack[2] = mask;
 
-  this.state.stencilFunc = func;
-  this.state.stencilRef = ref;
-  this.state.stencilValueMask = mask;
+  this.state.stencilFunc[0] = func;
+  this.state.stencilFunc[1] = ref;
+  this.state.stencilFunc[2] = mask;
 
   return _stencilFunc.apply(this, arguments);
 })(ProxiedWebGLRenderingContext.prototype.stencilFunc);
 ProxiedWebGLRenderingContext.prototype.stencilFuncSeparate = (_stencilFuncSeparate => function stencilFuncSeparate(face, func, ref, mask) {
   if (face === this.BACK) {
-    this.state.stencilBackFunc = func;
-    this.state.stencilBackRef = ref;
-    this.state.stencilBackValueMask = mask;
+    this.state.stencilFuncBack[0] = func;
+    this.state.stencilFuncBack[1] = ref;
+    this.state.stencilFuncBack[2] = mask;
   } else if (face === this.FRONT) {
-    this.state.stencilFunc = func;
-    this.state.stencilRef = ref;
-    this.state.stencilValueMask = mask;
+    this.state.stencilFunc[0] = func;
+    this.state.stencilFunc[1] = ref;
+    this.state.stencilFunc[2] = mask;
   }
   return _stencilFuncSeparate.apply(this, arguments);
 })(ProxiedWebGLRenderingContext.prototype.stencilFuncSeparate);
 ProxiedWebGLRenderingContext.prototype.stencilOp = (_stencilOp => function stencilOp(fail, zfail, zpass) {
-  this.state.stencilBackFail = fail;
-  this.state.stencilBackPassDepthFail = zfail;
-  this.state.stencilBackPassDepthPass = zpass;
+  this.state.stencilOpBack[0] = fail;
+  this.state.stencilOpBack[1] = zfail;
+  this.state.stencilOpBack[2] = zpass;
 
-  this.state.stencilFail = fail;
-  this.state.stencilPassDepthFail = zfail;
-  this.state.stencilPassDepthPass = zpass;
+  this.state.stencilOp[0] = fail;
+  this.state.stencilOp[1] = zfail;
+  this.state.stencilOp[2] = zpass;
 
   return _stencilOp.apply(this, arguments);
 })(ProxiedWebGLRenderingContext.prototype.stencilOp);
 ProxiedWebGLRenderingContext.prototype.stencilOpSeparate = (_stencilOpSeparate => function stencilOpSeparate(face, fail, zfail, zpass) {
   if (face === this.BACK) {
-    this.state.stencilBackFail = fail;
-    this.state.stencilBackPassDepthFail = zfail;
-    this.state.stencilBackPassDepthPass = zpass;
+    this.state.stencilOpBack[0] = fail;
+    this.state.stencilOpBack[1] = zfail;
+    this.state.stencilOpBack[2] = zpass;
   } else if (face === this.FRONT) {
-    this.state.stencilFail = fail;
-    this.state.stencilPassDepthFail = zfail;
-    this.state.stencilPassDepthPass = zpass;
+    this.state.stencilOp[0] = fail;
+    this.state.stencilOp[1] = zfail;
+    this.state.stencilOp[2] = zpass;
   }
   return _stencilOpSeparate.apply(this, arguments);
 })(ProxiedWebGLRenderingContext.prototype.stencilOpSeparate);
 ProxiedWebGLRenderingContext.prototype.stencilMask = (_stencilMask => function stencilMask(face, mask) {
   this.state.stencilBackWriteMask = mask;
   this.state.stencilWriteMask = mask;
-  return _stencilMaskSeparate.apply(this, arguments);
+  return _stencilMask.apply(this, arguments);
 })(ProxiedWebGLRenderingContext.prototype.stencilMask);
 ProxiedWebGLRenderingContext.prototype.stencilMaskSeparate = (_stencilMaskSeparate => function stencilMaskSeparate(face, mask) {
   if (face === this.BACK) {
