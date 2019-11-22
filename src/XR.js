@@ -705,6 +705,9 @@ class XRRigidTransform extends EventTarget {
     localQuaternion.toArray(this._orientationInverse._buffer);
     localVector2.toArray(this._scaleInverse._buffer);
 
+    this.flagUpdate();
+  }
+  flagUpdate() {
     GlobalContext.xrState.offsetEpoch[0]++;
   }
 }
