@@ -196,15 +196,24 @@ class VRStageParameters {
 }
 
 let localOffsetEpoch = 0;
+const identityMatrix = Float32Array.from([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+const _isIdentityMatrix = matrix => {
+  for (let i = 0; i < 16; i++) {
+    if (matrix[i] !== identityMatrix[i]) {
+      return false;
+    }
+  }
+  return true;
+};
 function getXrOffsetMatrix() {
   const offsetEpoch = GlobalContext.xrState.offsetEpoch[0];
   if (localOffsetEpoch !== offsetEpoch) {
     let win = window;
     localXrOffsetMatrix.fromArray(win.document.xrOffset.matrix);
-    localXrOffsetMatrix.premultiply(localXrOffsetMatrix2.fromArray(win.document.parentXrOffset.matrix));
+    !_isIdentityMatrix(win.document.parentXrOffset.matrix) && localXrOffsetMatrix.premultiply(localXrOffsetMatrix2.fromArray(win.document.parentXrOffset.matrix));
     for (win = win.parent; win.parent !== win; win = win.parent) {
-      localXrOffsetMatrix.premultiply(localXrOffsetMatrix2.fromArray(win.document.xrOffset.matrix));
-      localXrOffsetMatrix.premultiply(localXrOffsetMatrix2.fromArray(win.document.parentXrOffset.matrix));
+      !_isIdentityMatrix(win.document.xrOffset.matrix) && localXrOffsetMatrix.premultiply(localXrOffsetMatrix2.fromArray(win.document.xrOffset.matrix));
+      !_isIdentityMatrix(win.document.parentXrOffset.matrix) && localXrOffsetMatrix.premultiply(localXrOffsetMatrix2.fromArray(win.document.parentXrOffset.matrix));
     }
     localOffsetEpoch = offsetEpoch;
   }
