@@ -362,13 +362,14 @@ function setKeyArray3(gl, fn, key, state, state2) {
   }
 }
 function setTextureUnits(gl, state, state2) {
+  let lastActiveTexture = -1;
   for (let i = state.textureUnits.length - 1; i >= 0; i--) {
     const textureUnit = state.textureUnits[i];
     const textureUnit2 = state2.textureUnits[i];
     const texture2DDiff = textureUnit.texture2D !== textureUnit2.texture2D;
     const textureCubemapDiff = textureUnit.textureCubemap !== textureUnit2.textureCubemap;
     if (texture2DDiff || textureCubemapDiff) {
-      gl.activeTexture(gl.TEXTURE0 + i);
+      gl.activeTexture(lastActiveTexture = gl.TEXTURE0 + i);
       if (texture2DDiff) {
         gl.bindTexture(gl.TEXTURE_2D, textureUnit.texture2D);
       }
@@ -377,7 +378,7 @@ function setTextureUnits(gl, state, state2) {
       }
     }
   }
-  if (state.activeTexture !== gl.TEXTURE0) {
+  if (state.activeTexture !== lastActiveTexture) {
     gl.activeTexture(state.activeTexture);
   }
 }
