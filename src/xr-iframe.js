@@ -42,6 +42,7 @@ class XRIFrame extends HTMLElement {
 
     this.contentWindow = null;
     this.xrOffset = new XRRigidTransform();
+    this.parentXrOffset = new XRRigidTransform();
     this.connected = false;
     this._highlight = null;
     this._extents = [];
@@ -88,6 +89,7 @@ class XRIFrame extends HTMLElement {
             top,
             // hidden: this.d === 3,
             xrOffsetBuffer: this.xrOffset._buffer,
+            parentXrOffsetBuffer: this.parentXrOffset._buffer,
             datasetObject: this._data,
             onnavigate: (href) => {
               this.readyState = null;

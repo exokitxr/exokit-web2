@@ -770,6 +770,9 @@ const _fetchText = src => fetch(src)
   });
   window.document.xrOffset = xrOffset;
 
+  const parentXrOffset = options.parentXrOffsetBuffer ? new XR.XRRigidTransform(options.parentXrOffsetBuffer) : new XR.XRRigidTransform();
+  window.document.parentXrOffset = parentXrOffset;
+
   class Dataset extends EventTarget {
     constructor(data) {
       super();

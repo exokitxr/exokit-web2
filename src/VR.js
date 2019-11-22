@@ -201,8 +201,10 @@ function getXrOffsetMatrix() {
   if (localOffsetEpoch !== offsetEpoch) {
     let win = window;
     localXrOffsetMatrix.fromArray(win.document.xrOffset.matrix);
+    localXrOffsetMatrix.premultiply(localXrOffsetMatrix2.fromArray(win.document.parentXrOffset.matrix));
     for (win = win.parent; win.parent !== win; win = win.parent) {
       localXrOffsetMatrix.premultiply(localXrOffsetMatrix2.fromArray(win.document.xrOffset.matrix));
+      localXrOffsetMatrix.premultiply(localXrOffsetMatrix2.fromArray(win.document.parentXrOffset.matrix));
     }
     localOffsetEpoch = offsetEpoch;
   }
