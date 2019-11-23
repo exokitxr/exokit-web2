@@ -247,9 +247,9 @@ window.document.addEventListener('drop', e => {
     });
   }
 });
-window.addEventListener('contextmenu', e => {
+/* window.addEventListener('contextmenu', e => {
   e.preventDefault();
-});
+}); */
 window.addEventListener('vrdisplayconnect', e => {
   const {display} = e;
   const eyeParameters = ['left', 'right'].map(eye => display.getEyeParameters(eye));

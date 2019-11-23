@@ -113,6 +113,9 @@ const XREngineProto = {
               GlobalContext.windows[i].emit(type, event);
             }
           });
+          win.canvas.addEventListener('contextmenu', e => {
+            e.preventDefault();
+          });
         });
         const _mouseenter = () => {
           const {x, y, width, height} = win.canvas.getBoundingClientRect();
