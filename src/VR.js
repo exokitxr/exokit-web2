@@ -283,19 +283,19 @@ class VRDisplay extends EventTarget {
   }
 
   getLayers() {
-    return GlobalContext.xrState.stereo[0] ? [
+    return /*GlobalContext.xrState.stereo[0] ? */[
       {
         leftBounds: [0, 0, 0.5, 1],
         rightBounds: [0.5, 0, 0.5, 1],
         source: null,
       },
-    ] : [
+    ]/* : [
       {
         leftBounds: [0, 0, 1, 1],
         rightBounds: [1, 0, 1, 1],
         source: null,
       },
-    ];
+    ]; */
   }
 
   getEyeParameters(eye) {
@@ -306,7 +306,7 @@ class VRDisplay extends EventTarget {
       upDegrees: fovArray[2],
       downDegrees: fovArray[3],
     });
-    let renderWidth;
+    /* let renderWidth;
     if (GlobalContext.xrState.stereo[0]) {
       renderWidth = GlobalContext.xrState.renderWidth[0];
     } else {
@@ -315,9 +315,9 @@ class VRDisplay extends EventTarget {
       } else {
         renderWidth = 0;
       }
-    }
+    } */
     return {
-      renderWidth,
+      renderWidth: GlobalContext.xrState.renderWidth[0],
       renderHeight:  GlobalContext.xrState.renderHeight[0],
       offset: leftEye ? GlobalContext.xrState.leftOffset : GlobalContext.xrState.rightOffset,
       fieldOfView: _fovArrayToVRFieldOfView(leftEye ? GlobalContext.xrState.leftFov : GlobalContext.xrState.rightFov),
@@ -488,11 +488,11 @@ class FakeXRDisplay {
   }
 
   get width() {
-    if (GlobalContext.xrState.stereo[0]) {
+    // if (GlobalContext.xrState.stereo[0]) {
       return GlobalContext.xrState.renderWidth[0];
-    } else {
+    /* } else {
       return GlobalContext.xrState.renderWidth[0] * 2;
-    }
+    } */
   }
   set width(width) {}
   get height() {

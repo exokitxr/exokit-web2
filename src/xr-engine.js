@@ -74,7 +74,7 @@ const XREngineProto = {
     win.install = () => {
       if (!win.canvas) {
         win.canvas = document.createElement('canvas');
-        win.canvas.width = GlobalContext.xrState.renderWidth[0] * 2;
+        win.canvas.width = GlobalContext.xrState.renderWidth[0] * (GlobalContext.xrState.stereo[0] ? 2 : 1);
         win.canvas.height = GlobalContext.xrState.renderHeight[0];
         win.canvas.style.width = '100%';
         win.canvas.style.height = '100%';
@@ -204,6 +204,15 @@ const XREngineProto = {
       const {contentWindow: win} = this;
       if (!win.session) {
         if (win.canvas) {
+          GlobalContext.xrState.stereo[0] = 1;
+          for (let i = 0; i < GlobalContext.windows.length; i++) {
+            const win = GlobalContext.windows[i];
+            if (win.canvas) {
+              win.canvas.width = GlobalContext.xrState.renderWidth[0] * 2;
+              win.canvas.height = GlobalContext.xrState.renderHeight[0];
+            }
+          }
+
           const session = await navigator.xr.requestSession('immersive-vr', {
             requiredFeatures: ['local-floor'],
           });

@@ -45,7 +45,7 @@ const xrState = (() => {
   result.isPresenting = _makeTypedArray(Uint32Array, 1);
   result.isPresentingReal = _makeTypedArray(Uint32Array, 1);
   result.renderWidth = _makeTypedArray(Float32Array, 1);
-  result.renderWidth[0] = window.innerWidth / 2 * window.devicePixelRatio;
+  result.renderWidth[0] = window.innerWidth * window.devicePixelRatio;
   result.renderHeight = _makeTypedArray(Float32Array, 1);
   result.renderHeight[0] = window.innerHeight * window.devicePixelRatio;
   result.metrics = _makeTypedArray(Uint32Array, 2);
@@ -262,7 +262,7 @@ window.addEventListener('vrdisplayconnect', e => {
   for (let i = 0; i < windows.length; i++) {
     const win = windows[i];
     if (win.canvas) {
-      win.canvas.width = width * 2;
+      win.canvas.width = width;
       win.canvas.height = height;
     }
   }
