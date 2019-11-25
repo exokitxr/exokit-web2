@@ -103,7 +103,6 @@ HTMLCanvasElement.prototype.getContext = (oldGetContext => function getContext(t
 
     const canvas = this;
     const gl = match[1] === 'webgl2' ? new WebGL2RenderingContext(canvas) : new WebGLRenderingContext(canvas);
-    // const gl = oldGetContext.call(canvas, type, init);
 
     canvas.getContext = function getContext() {
       return gl;
