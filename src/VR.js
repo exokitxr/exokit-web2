@@ -507,12 +507,12 @@ class FakeXRDisplay {
     return GlobalContext.xrState.leftViewMatrix;
   }
   set viewMatrix(viewMatrix) {}
-  get stereo() {
+  /* get stereo() {
     return GlobalContext.xrState.stereo[0];
   }
   set stereo(stereo) {
     GlobalContext.xrState.stereo[0] = stereo ? 1 : 0;
-  }
+  } */
 }
 
 const hmdTypes = [
