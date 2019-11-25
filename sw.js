@@ -92,10 +92,10 @@ const _rewriteRes = res => {
   const {url, originalUrl} = res;
   return _rewriteResExt(res.url, res.originalUrl, res.headers, res);
 };
-const _flattenWebVrEyeJs = jsString => jsString.replace(
-  /\.getEyeParameters\("left"\).{0,100}\.set(?:DrawingBuffer)?Size\(2\*/g,
-  all => all + '(new FakeXRDisplay().stereo?1:0.5)*'
-);
+const _flattenWebVrEyeJs = jsString => jsString// .replace(
+  // /\.getEyeParameters\("left"\).{0,100}\.set(?:DrawingBuffer)?Size\(2\*/g,
+  // all => all + '(new FakeXRDisplay().stereo?1:0.5)*'
+// );
 const _rewriteResExt = (url, originalUrl, headers, res) => {
   if (originalUrl === 'https://aframe.io/releases/0.9.2/aframe.min.js') {
     return _rewriteResText(res, jsString => 'delete navigator.xr;' + _flattenWebVrEyeJs(jsString));
@@ -106,10 +106,10 @@ const _rewriteResExt = (url, originalUrl, headers, res) => {
         .replace('.length>0?(yield t.setMediaStreamToDefault()', '?(yield t.setMediaStreamToDefault()');
     });
   } else if (/^https:\/\/assets-prod\.reticulum\.io\/hubs\/assets\/js\/engine-[a-zA-Z0-9]+\.js$/.test(originalUrl)) {
-    return _rewriteResText(res, jsString => 'delete navigator.xr;' + jsString.replace(
-      /\.getEyeParameters\("left"\);[a-z]+=2\*/g,
-      all => all + '(new FakeXRDisplay().stereo?1:0.5)*'
-    ));
+    return _rewriteResText(res, jsString => 'delete navigator.xr;' // + jsString.replace(
+      // /\.getEyeParameters\("left"\);[a-z]+=2\*/g,
+      // all => all + '(new FakeXRDisplay().stereo?1:0.5)*'
+    )// );
   } else if (/janusweb\.js$/.test(originalUrl)) {
     return _rewriteResText(res, jsString =>
       jsString
@@ -124,16 +124,16 @@ const _rewriteResExt = (url, originalUrl, headers, res) => {
       const result = jsString
         .replace(/https:\/\/www\.cryptovoxels\.com\//g, '/')
         .replace('r.enterVR()}))', 'r.enterVR()})),setTimeout(() => {this._btnVR.click();})')
-        .replace(/this\._rigCameras\[0\]\.viewport=new ([a-zA-Z0-9\.]+)\(0\,0\,\.5\,1\)/g, 'this._rigCameras[0].viewport=new $1(0,0,new FakeXRDisplay().stereo?0.5:1,1)')
-        .replace(/this\._rigCameras\[1\]\.viewport=new ([a-zA-Z0-9\.]+)\(\.5\,0\,\.5\,1\)/g, 'this._rigCameras[1].viewport=new $1(new FakeXRDisplay().stereo?0.5:0,0,new FakeXRDisplay().stereo?0.5:0,1)')
+        // .replace(/this\._rigCameras\[0\]\.viewport=new ([a-zA-Z0-9\.]+)\(0\,0\,\.5\,1\)/g, 'this._rigCameras[0].viewport=new $1(0,0,new FakeXRDisplay().stereo?0.5:1,1)')
+        // .replace(/this\._rigCameras\[1\]\.viewport=new ([a-zA-Z0-9\.]+)\(\.5\,0\,\.5\,1\)/g, 'this._rigCameras[1].viewport=new $1(new FakeXRDisplay().stereo?0.5:0,0,new FakeXRDisplay().stereo?0.5:0,1)')
       return result;
     });
  } else if (originalUrl === 'https://preview.babylonjs.com/babylon.js') {
     return _rewriteResText(res, jsString => {
       const result = jsString
         .replace('s._attached&&s.getEngine().enableVR()', 's.getEngine().enableVR()')
-        .replace(/e\._rigCameras\[0\]\.viewport=new ([a-zA-Z0-9\.]+)\(0\,0\,\.5\,1\)/g, 'e._rigCameras[0].viewport=new $1(0,0,new FakeXRDisplay().stereo?0.5:1,1)')
-        .replace(/e\._rigCameras\[1\]\.viewport=new ([a-zA-Z0-9\.]+)\(\.5\,0\,\.5\,1\)/g, 'e._rigCameras[1].viewport=new $1(new FakeXRDisplay().stereo?0.5:0,0,new FakeXRDisplay().stereo?0.5:0,1)')
+        // .replace(/e\._rigCameras\[0\]\.viewport=new ([a-zA-Z0-9\.]+)\(0\,0\,\.5\,1\)/g, 'e._rigCameras[0].viewport=new $1(0,0,new FakeXRDisplay().stereo?0.5:1,1)')
+        // .replace(/e\._rigCameras\[1\]\.viewport=new ([a-zA-Z0-9\.]+)\(\.5\,0\,\.5\,1\)/g, 'e._rigCameras[1].viewport=new $1(new FakeXRDisplay().stereo?0.5:0,0,new FakeXRDisplay().stereo?0.5:0,1)')
         .replace('this._webVRpresenting=e.isPresenting', 'this._webVRpresenting=false')
         .replace('this._btnVR.addEventListener("click",function(){i.isInVRMode?i.exitVR():i.enterVR()})', 'this._btnVR.addEventListener("click",function(){i.isInVRMode?i.exitVR():i.enterVR()});setTimeout(() => {i.enterVR()})');
       return result;
