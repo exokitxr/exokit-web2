@@ -19,7 +19,15 @@ class XRSite extends HTMLElement {
     const _collectLayers = () => Array.from(this.childNodes)
       .filter(childNode => childNode instanceof XRIFrame)
       .concat(this.customLayers);
-    new MutationObserver(async mutations => {
+
+    const session = await navigator.xr.requestSession({
+      exclusive: true,
+    });
+    session.layers = _collectLayers();
+    this.session = session;
+    this.sessionPromise.resolve(session);
+
+    const observer = new MutationObserver(async mutations => {
       await GlobalContext.loadPromise;
 
       for (let i = 0; i < mutations.length; i++) {
@@ -36,20 +44,15 @@ class XRSite extends HTMLElement {
       }
 
       this.session.layers = _collectLayers();
-    }).observe(this, {
+    });
+    observer.observe(this, {
       childList: true,
     });
-
-    const session = await navigator.xr.requestSession({
-      exclusive: true,
-    });
-    session.layers = _collectLayers();
-    this.session = session;
-    this.sessionPromise.resolve(session);
+    this.observer = observer;
   }
-  /* disconnectedCallback() {
-    console.log('disconnected', this);
-  } */
+  disconnectedCallback() {
+    this.observer.disconnect();
+  }
   async attributeChangedCallback(name, oldValue, newValue) {
     if (!GlobalContext.xrState.isPresentingReal[0]) {
       await GlobalContext.loadPromise;
