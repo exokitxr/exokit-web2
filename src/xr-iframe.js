@@ -60,6 +60,11 @@ class XRIFrame extends HTMLElement {
   }
   disconnectedCallback() {
     this.connected = false;
+
+    if (this.contentWindow) {
+      this.contentWindow.destroy();
+      this.contentWindow = null;
+    }
   }
   async attributeChangedCallback(name, oldValue, newValue) {
     if (this.connected && newValue !== oldValue) {
