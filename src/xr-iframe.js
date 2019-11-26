@@ -367,7 +367,10 @@ class XRIFrame extends HTMLElement {
     this.contentWindow.postMessage(m, transfers);
   }
   destroy() {
-    this.contentWindow.destroy();
+    if (this.contentWindow) {
+      this.contentWindow.destroy();
+      this.contentWindow = null;
+    }
   }
 }
 customElements.define('xr-iframe', XRIFrame);
