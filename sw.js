@@ -33,6 +33,7 @@ self.addEventListener('message', e => {
   e.ports[0].postMessage({});
 });
 
+const _isBodyableMethod = method => /^(?:POST|PUT|DELETE)$/.test(method);
 const _rewriteUrlToProxy = u => {
   if (/^[a-z]+:\/\//.test(u) && !u.startsWith(self.location.origin) && !/^[a-z]+:\/\/[a-z0-9\-]+\.proxy\.exokit\.org(?:\/|$)/.test(u)) {
     const parsedUrl = new URL(u);
@@ -233,7 +234,16 @@ self.addEventListener('fetch', event => {
             );
           }
         } else if (match2 = match[1].match(/^\/\.d\/(.+)$/)) {
-          event.respondWith(fetch(match2[1]));
+          event.respondWith((async () => {
+            const u = match2[1];
+            const body = _isBodyableMethod(event.request.method) ? await event.request.blob() : null; // XXX should use request.body instead
+            const res = await fetch(u, {
+              method: event.request.method,
+              headers: event.request.headers,
+              body,
+            });
+            return res;
+          })());
         } else if (match2 = match[1].match(/^\/\.s\/(.+)$/)) {
           event.respondWith(
             clients.get(event.clientId)
