@@ -58,7 +58,8 @@ function _getProxyUrl(u) {
   if (/^https?:\/\//.test(u) && !u.startsWith(self.location.origin) || !/^(?:[a-z]+:|\/\.[pdf]\/)/.test(u)) {
     const el = document.querySelector('base');
     const baseUrl = (el && el.href) || self.location.origin;
-    u = self.location.origin + '/.p/' + new URL(u, baseUrl).href;
+    const prefix = /^[a-z]+?:\/\/(?:[a-zA-Z0-9\-]+\.)*?exokit\.org(?::[0-9]+)?/.test(u) ? 'd' : 'p';
+    u = `${self.location.origin}/.${prefix}/${new URL(u, baseUrl).href}`;
   }
   return u;
 }
