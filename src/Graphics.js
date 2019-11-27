@@ -107,6 +107,18 @@ HTMLCanvasElement.prototype.getContext = (oldGetContext => function getContext(t
     canvas.getContext = function getContext() {
       return gl;
     };
+    canvas.toBlob = function toBlob(cb, type, quality) {
+      const canvas2 = document.createElement('canvas');
+      canvas2.width = canvas.width;
+      canvas2.height = canvas.height;
+      const ctx2 = oldGetContext.call(canvas2, '2d');
+      ctx2.drawImage(
+        GlobalContext.proxyContext.canvas,
+        0, GlobalContext.proxyContext.canvas.height - canvas2.height, canvas.width, canvas.height,
+        0, 0, canvas.width, canvas.height
+      );
+      return canvas2.toBlob(cb, type, quality);
+    };
 
     /* new MutationObserver(() => {
       GlobalContext.proxyContext.canvas.width = canvas.width;
