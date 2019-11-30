@@ -50,6 +50,16 @@ const XREngineProto = {
     this.setAttribute('src', src);
   },
 
+  get canvas() {
+    for (let i = 0; i < GlobalContext.windows.length; i++) {
+      const win = GlobalContext.windows[i];
+      if (win.canvas) {
+        return win.canvas;
+      }
+    }
+    return null;
+  },
+
   navigate(u) {
     const baseUrl = _getBaseUrl(u);
 
