@@ -168,13 +168,13 @@ function ProxiedWebGLRenderingContext(canvas) {
     get() {
       return canvas.width;
     },
-    set(w) {}
+    // set(w) {}
   });
   Object.defineProperty(this, 'drawingBufferHeight', {
     get() {
       return canvas.height;
     },
-    set(h) {}
+    // set(h) {}
   });
 
   this.id = ++GlobalContext.xrState.id[0];
