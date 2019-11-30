@@ -9,9 +9,7 @@ const XREngineProto = {
   _constructor() {
     this.contentWindow = null;
     this.queue = [];
-    this.canvas = null;
-    this.ctx = null;
-    // this.shadow = null;
+    this.shadow = null;
     this.session = null;
     this.baseLayer = null;
 
