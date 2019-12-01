@@ -417,6 +417,8 @@ const _tickAnimationFrames = () => {
     }
   }
 };
+const isOculusBrowser = /OculusBrowser/i.test(navigator.userAgent);
+let frameIndex = 0;
 core.animate = (timestamp, frame, referenceSpace) => {
   const session = core.getSession();
   if (session) {
@@ -501,6 +503,12 @@ core.animate = (timestamp, frame, referenceSpace) => {
 
     windows[0] && windows[0].ctx && (windows[0].ctx.xrFramebuffer = framebuffer);
   } else {
+    if (isOculusBrowser) {
+      if (((++frameIndex) % 10) !== 0) {
+        return;
+      }
+    }
+
     const ctx = windows[0] && windows[0].ctx;
     const xrFramebuffer = ctx && ctx.xrFramebuffer;
     if (xrFramebuffer) {
