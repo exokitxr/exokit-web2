@@ -147,4 +147,31 @@ const _replaceDocument = async htmlString => {
 };
 module.exports._replaceDocument = _replaceDocument;
 
+const hasWebGL2 = !!window.WebGL2RenderingContext;
+module.exports.hasWebGL2 = hasWebGL2;
+class WebGLStateFramebuffer {
+  constructor(gl) {
+    if (hasWebGL2) {
+      this[gl.READ_FRAMEBUFFER] = null;
+      this[gl.DRAW_FRAMEBUFFER] = null;
+    } else {
+      this[gl.FRAMEBUFFER] = null;
+    }
+  }
+}
+module.exports.WebGLStateFramebuffer = WebGLStateFramebuffer;
+class WebGLStateRenderBuffer {
+  constructor(gl) {
+    this[gl.RENDERBUFFER] = null;
+  }
+}
+module.exports.WebGLStateRenderBuffer = WebGLStateRenderBuffer;
+class WebGLStateTextureUnit {
+  constructor() {
+    this.texture2D = null;
+    this.textureCubemap = null;
+  }
+}
+module.exports.WebGLStateTextureUnit = WebGLStateTextureUnit;
+
 export default module.exports;

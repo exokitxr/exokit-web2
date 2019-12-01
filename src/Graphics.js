@@ -1,6 +1,8 @@
 import webGlToOpenGl from '../modules/webgl-to-opengl.js';
 
 import symbols from './symbols.js';
+import utils from './utils.js';
+const {hasWebGL2, WebGLStateFramebuffer, WebGLStateRenderBuffer, WebGLStateTextureUnit} = utils;
 import GlobalContext from './GlobalContext.js';
 
 /* const {OffscreenCanvasRenderingContext2D, WebGLRenderingContext: OffscreenWebGLRenderingContext, WebGL2RenderingContext: OffscreenWebGL2RenderingContext} = self;
@@ -9,8 +11,6 @@ self.WebGLRenderingContext = undefined;
 self.WebGL2RenderingContext = undefined; */
 
 const {/*WebGLRenderingContext, WebGL2RenderingContext,*/ CanvasRenderingContext2D} = self;
-
-const hasWebGL2 = !!window.WebGL2RenderingContext;
 
 class WebGLState {
   constructor() {
@@ -72,27 +72,6 @@ class WebGLState {
       textureUnits[i] = new WebGLStateTextureUnit();
     }
     this.textureUnits = textureUnits;
-  }
-}
-class WebGLStateFramebuffer {
-  constructor(gl) {
-    if (hasWebGL2) {
-      this[gl.READ_FRAMEBUFFER] = null;
-      this[gl.DRAW_FRAMEBUFFER] = null;
-    } else {
-      this[gl.FRAMEBUFFER] = null;
-    }
-  }
-}
-class WebGLStateRenderBuffer {
-  constructor(gl) {
-    this[gl.RENDERBUFFER] = null;
-  }
-}
-class WebGLStateTextureUnit {
-  constructor() {
-    this.texture2D = null;
-    this.textureCubemap = null;
   }
 }
 
