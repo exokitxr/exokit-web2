@@ -1,7 +1,7 @@
 import core from './core.js';
 
 import utils from './utils.js';
-const {_getBaseUrl, _getProxyUrl} = utils;
+const {_getBaseUrl, _getProxyUrl, WebGLStateFramebuffer} = utils;
 
 import GlobalContext from './GlobalContext.js';
 
@@ -143,9 +143,11 @@ const XREngineProto = {
           if (!fbo) {
             fbo = win.ctx.xrFramebuffer;
           }
+          win.ctx.framebufferState[target] = fbo;
           return _bindFramebuffer.call(this, target, fbo);
         })(win.ctx.bindFramebuffer);
         win.ctx.binding = null;
+        win.ctx.framebufferState = new WebGLStateFramebuffer(win.ctx);
         win.ctx.xrFramebuffer = null;
         const extensions = win.ctx.getSupportedExtensions();
         for (let i = 0; i < extensions.length; i++) {

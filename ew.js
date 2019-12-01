@@ -499,9 +499,18 @@ core.animate = (timestamp, frame, referenceSpace) => {
     _loadGamepad(0);
     _loadGamepad(1);
 
-    const win = windows[0];
-    const {canvas, ctx} = win;
-    ctx.xrFramebuffer = framebuffer;
+    windows[0] && windows[0].ctx && (windows[0].ctx.xrFramebuffer = framebuffer);
+  } else {
+    const ctx = windows[0] && windows[0].ctx;
+    const xrFramebuffer = ctx && ctx.xrFramebuffer;
+    if (xrFramebuffer) {
+      ctx.xrFramebuffer = null;
+      for (const target in ctx.framebufferState) {
+        if (ctx.framebufferState[target] === xrFramebuffer) {
+          ctx.bindFramebuffer(target, null);
+        }
+      }
+    }
   }
   
   // _computeDerivedGamepadsData();
