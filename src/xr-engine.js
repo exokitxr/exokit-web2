@@ -11,7 +11,7 @@ const XREngineProto = {
     this.queue = [];
     this.shadow = null;
     this.session = null;
-    this.baseLayer = null;
+    // this.baseLayer = null;
     this.clearColor = new Float32Array(4);
 
     const _updateInnerHTML = async () => {
@@ -79,7 +79,7 @@ const XREngineProto = {
     win.canvas = null;
     win.ctx = null;
     win.session = null;
-    win.baseLayer = null;
+    // win.baseLayer = null;
     win.install = () => {
       if (!win.canvas) {
         win.canvas = document.createElement('canvas');
@@ -287,8 +287,23 @@ const XREngineProto = {
           core.setSession(session);
           core.setReferenceSpace(referenceSpace);
 
+          const _end = () => {
+            session.removeEventListener('end', _end);
+
+            GlobalContext.xrState.isPresentingReal[0] = 0;
+
+            core.setSession(null);
+            core.setReferenceSpace(null);
+
+            win.session = null;
+            // win.baseLayer = null;
+
+            clearInterval(loadReferenceSpaceInterval);
+          };
+          session.addEventListener('end', _end);
+
           win.session = session;
-          win.baseLayer = baseLayer;
+          // win.baseLayer = baseLayer;
         } else {
           throw new Error('not loaded');
         }
