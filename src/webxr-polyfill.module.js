@@ -5828,7 +5828,7 @@ class Session {
     this.baseLayer = null;
     this.inlineVerticalFieldOfView = Math.PI * 0.5;
     this.id = ++SESSION_ID;
-    this.modifiedCanvasLayer = false;
+    // this.modifiedCanvasLayer = false;
     if (this.outputContext && !TEST_ENV) {
       const renderContextType = polyfillOptions.renderContextType || '2d';
       this.renderContext = this.outputContext.canvas.getContext(renderContextType);
@@ -5867,11 +5867,11 @@ class WebVRDevice extends XRDevice {
       this.display.requestPresent([{
           source: canvas, attributes: EXTRA_PRESENTATION_ATTRIBUTES
         }]).then(() => {
-        if (!TEST_ENV && !this.global.document.body.contains(canvas)) {
+        /* if (!TEST_ENV && !this.global.document.body.contains(canvas)) {
           session.modifiedCanvasLayer = true;
           this.global.document.body.appendChild(canvas);
           applyCanvasStylesForMinimalRendering(canvas);
-        }
+        } */
         session.baseLayer = layer;
       });
     }
@@ -6137,11 +6137,11 @@ class WebVRDevice extends XRDevice {
     if (!this.display.isPresenting) {
       this.sessions.forEach(session => {
         if (session.immersive && !session.ended) {
-          if (session.modifiedCanvasLayer) {
+          /* if (session.modifiedCanvasLayer) {
             const canvas = session.baseLayer.context.canvas;
             document.body.removeChild(canvas);
             canvas.setAttribute('style', '');
-          }
+          } */
           if (this.immersiveSession === session) {
             this.immersiveSession = null;
           }
