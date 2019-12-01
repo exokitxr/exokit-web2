@@ -6148,6 +6148,7 @@ class WebVRDevice extends XRDevice {
           this.dispatchEvent('@@webxr-polyfill/vr-present-end', session.id);
         }
       });
+      this.sessions.clear();
     }
   }
 }
