@@ -121,9 +121,9 @@ class EventTarget {
     if (typeof type !== 'string') { throw new Error('`type` must be a string'); }
     if (typeof listener !== 'function') { throw new Error('`listener` must be a function'); }
     const typedListeners = this[PRIVATE].listeners.get(type) || [];
-    for (let i = typedListeners.length; i >= 0; i--) {
+    for (let i = typedListeners.length - 1; i >= 0; i--) {
       if (typedListeners[i] === listener) {
-        typedListeners.pop();
+        typedListeners.splice(i, 1);
       }
     }
   }
