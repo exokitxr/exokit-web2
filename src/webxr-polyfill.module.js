@@ -1979,6 +1979,9 @@ class XRSession$1 extends EventTarget {
       this[PRIVATE$15].suspendedCallback = callback;
     }
     return this[PRIVATE$15].device.requestAnimationFrame(() => {
+      if (this[PRIVATE$15].ended) {
+        return;
+      }
       if (this[PRIVATE$15].pendingRenderState !== null) {
         this[PRIVATE$15].activeRenderState = new XRRenderState(this[PRIVATE$15].pendingRenderState);
         this[PRIVATE$15].pendingRenderState = null;
