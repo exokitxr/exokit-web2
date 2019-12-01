@@ -86,12 +86,12 @@ const _setAnimationContext = newAnimationContext => {
 let session = null;
 exokit.getSession = () => session;
 exokit.setSession = newSession => {
-  if (newSession) {
-    _setAnimationContext(newSession);
+  session = newSession;
+  if (session) {
+    _setAnimationContext(session);
   } else {
     _setAnimationContext(window);
   }
-  session = newSession;
 };
 let referenceSpace = null;
 exokit.setReferenceSpace = newReferenceSpace => {
