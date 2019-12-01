@@ -12,6 +12,7 @@ const XREngineProto = {
     this.shadow = null;
     this.session = null;
     this.baseLayer = null;
+    this.clearColor = new Float32Array(4);
 
     const _updateInnerHTML = async () => {
       await GlobalContext.loadPromise;
@@ -171,7 +172,7 @@ const XREngineProto = {
     win.clear = () => {
       if (win.ctx) {
         win.ctx.binding = null;
-        win.ctx.clearColor(0, 0, 0, 0);
+        win.ctx.clearColor(this.clearColor[0], this.clearColor[1], this.clearColor[2], this.clearColor[3]);
         win.ctx.clear(win.ctx.COLOR_BUFFER_BIT|win.ctx.STENCIL_BUFFER_BIT|win.ctx.DEPTH_BUFFER_BIT);
       }
     };
@@ -205,6 +206,13 @@ const XREngineProto = {
     } else {
       this.queue.push([data, transfers]);
     }
+  },
+
+  setClearColor(r, g , b, a) {
+    this.clearColor[0] = r;
+    this.clearColor[1] = g;
+    this.clearColor[2] = b;
+    this.clearColor[3] = a;
   },
 
   async enterXr() {
