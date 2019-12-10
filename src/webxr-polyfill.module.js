@@ -97,7 +97,25 @@
  * THE SOFTWARE.
  */
 
-if (!/(Helio)/g.test(navigator.userAgent)) {
+if (navigator.getVRDisplays && !/(Helio)/g.test(navigator.userAgent)) {
+
+delete window.XR;
+delete window.XRSession;
+delete window.XRWebGLLayer;
+delete window.XRPose;
+delete window.XRInputSource;
+delete window.XRFrame;
+delete window.XRReferenceSpace;
+delete window.XRRigidTransform;
+delete window.XRView;
+delete window.XRViewport;
+delete window.XRViewerPose;
+delete window.XRSpace;
+delete window.XRSessionEvent;
+delete window.XRReferenceSpaceEvent;
+delete window.XRInputSourceEvent;
+delete window.XRInputSourcesChangeEvent;
+delete window.XRRenderState;
 
 const _global = typeof global !== 'undefined' ? global :
                 typeof self !== 'undefined' ? self :
@@ -6212,7 +6230,7 @@ class WebXRPolyfill {
   constructor(config={}) {
     this.config = Object.freeze(Object.assign({}, CONFIG_DEFAULTS, config));
     this.global = this.config.global;
-    this.nativeWebXR = 'xr' in this.global.navigator;
+    this.nativeWebXR = false;
     this.injected = false;
     if (!this.nativeWebXR) {
       this._injectPolyfill(this.global);
