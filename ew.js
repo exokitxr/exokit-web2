@@ -425,83 +425,86 @@ core.animate = (timestamp, frame, referenceSpace) => {
     // console.log('animate session', session, frame, referenceSpace);
     // debugger;
     const pose = frame.getViewerPose(referenceSpace);
-    const {views} = pose;
-    const {inputSources, renderState: {baseLayer: {framebuffer}}} = session;
-    const gamepads = navigator.getGamepads();
+    if (pose) {
+      const inputSources = Array.from(session.inputSources);
+      const gamepads = navigator.getGamepads();
 
-    const _loadHmd = () => {
-      xrState.leftViewMatrix.set(views[0].transform.inverse.matrix);
-      xrState.leftProjectionMatrix.set(views[0].projectionMatrix);
+      const _loadHmd = () => {
+        const {views} = pose;
 
-      xrState.rightViewMatrix.set(views[1].transform.inverse.matrix);
-      xrState.rightProjectionMatrix.set(views[1].projectionMatrix);
+        xrState.leftViewMatrix.set(views[0].transform.inverse.matrix);
+        xrState.leftProjectionMatrix.set(views[0].projectionMatrix);
 
-      localMatrix
-        .fromArray(xrState.leftViewMatrix)
-        .getInverse(localMatrix)
-        .decompose(localVector, localQuaternion, localVector2)
-      localVector.toArray(xrState.position);
-      localQuaternion.toArray(xrState.orientation);
-    };
-    _loadHmd();
- 
-    // console.log('got gamepads', gamepads);
-    // debugger;
-    const _loadGamepad = i => {
-      const handedness = i === 0 ? 'left' : 'right';
-      const inputSource = inputSources.find(inputSource => inputSource.handedness === handedness);
-      const xrGamepad = xrState.gamepads[i];
+        xrState.rightViewMatrix.set(views[1].transform.inverse.matrix);
+        xrState.rightProjectionMatrix.set(views[1].projectionMatrix);
 
-      let pose, gripPose, gamepad;
-      if (inputSource && (pose = frame.getPose(inputSource.targetRaySpace, referenceSpace)) && (gripPose = frame.getPose(inputSource.gripSpace, referenceSpace)) && (gamepad = inputSource.gamepad || gamepads[i])) {
-        {
-          const {transform: {position, orientation, matrix}} = pose;
-          xrGamepad.position[0] = position.x;
-          xrGamepad.position[1] = position.y;
-          xrGamepad.position[2] = position.z;
+        localMatrix
+          .fromArray(xrState.leftViewMatrix)
+          .getInverse(localMatrix)
+          .decompose(localVector, localQuaternion, localVector2)
+        localVector.toArray(xrState.position);
+        localQuaternion.toArray(xrState.orientation);
+      };
+      _loadHmd();
 
-          xrGamepad.orientation[0] = orientation.x;
-          xrGamepad.orientation[1] = orientation.y;
-          xrGamepad.orientation[2] = orientation.z;
-          xrGamepad.orientation[3] = orientation.w;
+      // console.log('got gamepads', gamepads);
+      // debugger;
+      const _loadGamepad = i => {
+        const handedness = i === 0 ? 'left' : 'right';
+        const inputSource = inputSources.find(inputSource => inputSource.handedness === handedness);
+        const xrGamepad = xrState.gamepads[i];
 
-          xrGamepad.transformMatrix.set(matrix);
+        let pose, gripPose, gamepad;
+        if (inputSource && (pose = frame.getPose(inputSource.targetRaySpace, referenceSpace)) && (gripPose = frame.getPose(inputSource.gripSpace, referenceSpace)) && (gamepad = inputSource.gamepad || gamepads[i])) {
+          {
+            const {transform: {position, orientation, matrix}} = pose;
+            xrGamepad.position[0] = position.x;
+            xrGamepad.position[1] = position.y;
+            xrGamepad.position[2] = position.z;
+
+            xrGamepad.orientation[0] = orientation.x;
+            xrGamepad.orientation[1] = orientation.y;
+            xrGamepad.orientation[2] = orientation.z;
+            xrGamepad.orientation[3] = orientation.w;
+
+            xrGamepad.transformMatrix.set(matrix);
+          }
+          {
+            const {transform: {position, orientation, matrix}} = gripPose;
+            xrGamepad.gripPosition[0] = position.x;
+            xrGamepad.gripPosition[1] = position.y;
+            xrGamepad.gripPosition[2] = position.z;
+
+            xrGamepad.gripOrientation[0] = orientation.x;
+            xrGamepad.gripOrientation[1] = orientation.y;
+            xrGamepad.gripOrientation[2] = orientation.z;
+            xrGamepad.gripOrientation[3] = orientation.w;
+
+            xrGamepad.gripTransformMatrix.set(matrix);
+          }
+          
+          for (let j = 0; j < gamepad.buttons.length; j++) {
+            const button = gamepad.buttons[j];
+            const xrButton = xrGamepad.buttons[j];
+            xrButton.pressed[0] = button.pressed;
+            xrButton.touched[0] = button.touched;
+            xrButton.value[0] = button.value;
+          }
+          
+          for (let j = 0; j < gamepad.axes.length; j++) {
+            xrGamepad.axes[j] = gamepad.axes[j];
+          }
+          
+          xrGamepad.connected[0] = 1;
+        } else {
+          xrGamepad.connected[0] = 0;
         }
-        {
-          const {transform: {position, orientation, matrix}} = gripPose;
-          xrGamepad.gripPosition[0] = position.x;
-          xrGamepad.gripPosition[1] = position.y;
-          xrGamepad.gripPosition[2] = position.z;
+      };
+      _loadGamepad(0);
+      _loadGamepad(1);
+    }
 
-          xrGamepad.gripOrientation[0] = orientation.x;
-          xrGamepad.gripOrientation[1] = orientation.y;
-          xrGamepad.gripOrientation[2] = orientation.z;
-          xrGamepad.gripOrientation[3] = orientation.w;
-
-          xrGamepad.gripTransformMatrix.set(matrix);
-        }
-        
-        for (let j = 0; j < gamepad.buttons.length; j++) {
-          const button = gamepad.buttons[j];
-          const xrButton = xrGamepad.buttons[j];
-          xrButton.pressed[0] = button.pressed;
-          xrButton.touched[0] = button.touched;
-          xrButton.value[0] = button.value;
-        }
-        
-        for (let j = 0; j < gamepad.axes.length; j++) {
-          xrGamepad.axes[j] = gamepad.axes[j];
-        }
-        
-        xrGamepad.connected[0] = 1;
-      } else {
-        xrGamepad.connected[0] = 0;
-      }
-    };
-    _loadGamepad(0);
-    _loadGamepad(1);
-
-    windows[0] && windows[0].ctx && (windows[0].ctx.xrFramebuffer = framebuffer);
+    windows[0] && windows[0].ctx && (windows[0].ctx.xrFramebuffer = session.renderState.baseLayer.framebuffer);
   } else {
     if (isOculusBrowser) {
       if (((++frameIndex) % 10) !== 0) {
