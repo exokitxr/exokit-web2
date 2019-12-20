@@ -34,6 +34,25 @@ self.addEventListener('message', e => {
 });
 
 const _isBodyableMethod = method => /^(?:POST|PUT|DELETE)$/.test(method);
+const _proxyBody = async (req, u) => {
+  let body;
+  if (req.originalBody !== undefined) {
+    body = req.originalBody;
+  } else {
+    if (_isBodyableMethod(req.method)) {
+      body = await req.blob();
+    } else {
+      body = null;
+    }
+    req.originalBody = body;
+  }
+  const res = await fetch(u, {
+    method: req.method,
+    headers: req.headers,
+    body,
+  });
+  return res;
+};
 const _rewriteUrlToProxy = u => {
   if (/^[a-z]+:\/\//.test(u) && !u.startsWith(self.location.origin) && !/^[a-z]+:\/\/[a-z0-9\-]+\.proxy\.exokit\.org(?:\/|$)/.test(u)) {
     const parsedUrl = new URL(u);
@@ -218,30 +237,25 @@ self.addEventListener('fetch', event => {
           const originalUrl = match2[1];
           const permanentRedirect = permanentRedirects[originalUrl];
           if (permanentRedirect) {
-            event.respondWith(
-              fetch(permanentRedirect)
-            );
+            event.respondWith((async () => {
+              const res = await _proxyBody(event.request, permanentRedirect);
+              return res;
+            })());
           } else {
             const proxyUrl = _rewriteUrlToProxy(originalUrl);
-            event.respondWith(
-              fetch(proxyUrl, {
-                method: event.request.method,
-                headers: event.request.headers,
-              }).then(res => {
-                res.originalUrl = originalUrl;
-                return _rewriteRes(res);
-              })
-            );
+            event.respondWith((async () => {
+              const res = await _proxyBody(event.request, proxyUrl)
+                .then(res => {
+                  res.originalUrl = originalUrl;
+                  return _rewriteRes(res);
+                });
+              return res;
+            })());
           }
         } else if (match2 = match[1].match(/^\/\.d\/(.+)$/)) {
           event.respondWith((async () => {
             const u = match2[1];
-            const body = _isBodyableMethod(event.request.method) ? await event.request.blob() : null; // XXX should use request.body instead
-            const res = await fetch(u, {
-              method: event.request.method,
-              headers: event.request.headers,
-              body,
-            });
+            const res = await _proxyBody(event.request, u);
             return res;
           })());
         } else if (match2 = match[1].match(/^\/\.s\/(.+)$/)) {
@@ -284,17 +298,15 @@ self.addEventListener('fetch', event => {
           );
         } else {
           event.respondWith(
-            fetch(event.request)
+            _proxyBody(event.request, event.request.url)
               .then(res => {
                 if (res.type === 'opaque') {
                   const proxyUrl = _rewriteUrlToProxy(u);
-                  return fetch(proxyUrl, {
-                    method: event.request.method,
-                    headers: event.request.headers,
-                  }).then(res => {
-                    res.originalUrl = u;
-                    return _rewriteRes(res);
-                  });
+                  return _proxyBody(event.request, proxyUrl)
+                    .then(res => {
+                      res.originalUrl = u;
+                      return _rewriteRes(res);
+                    });
                 } else {
                   res.originalUrl = u;
                   return _rewriteRes(res);
@@ -302,13 +314,11 @@ self.addEventListener('fetch', event => {
               })
               .catch(err => {
                 const proxyUrl = _rewriteUrlToProxy(u);
-                return fetch(proxyUrl, {
-                  method: event.request.method,
-                  headers: event.request.headers,
-                }).then(res => {
-                  res.originalUrl = u;
-                  return _rewriteRes(res);
-                });
+                return _proxyBody(event.request, proxyUrl)
+                  .then(res => {
+                    res.originalUrl = u;
+                    return _rewriteRes(res);
+                  });
               })
           );
         }
